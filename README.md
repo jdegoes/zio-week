@@ -1,56 +1,41 @@
-# ZIO 2 + Scala 3 project template
+# ZIO Week
 
-This project can be used as a starting point for a ZIO 2 + Scala 3 web service with public, private and internal APIs served on different ports. The architecture is 3 layered - Domain, Implementation and API layers. The Domain layer should be used for business logic only, the Implementation should hold the actual implementation (e.g. code that interacts with Postgres or Kafka) and the API layer is responsible for http communication with the outside world.
+A full week of training covering functional effects and more.
 
-## Notable dependencies
+# Usage
 
-- Chimney (transformations between domain / dto / dao objects)
-- Flyway (database migrations)
-- zio-http
-- zio-json
-- zio-kafka
-- zio-prelude (validation of inputs)
-- zio-quill (type safe sql queries)
+## From the UI
 
-## SBT Plugins
+1. Download the repository as a [zip archive](https://github.com/jdegoes/zio-week/archive/main.zip).
+2. Unzip the archive, usually by double-clicking on the file.
+3. Configure the source code files in the IDE or text editor of your choice.
 
-- sbt-dependency-updates (check for new versions of the project dependencies)
-- sbt-dotenv (load configuration from a `.env` file automatically when running `sbt run`)
-- sbt-native-packager (package the compiled code / add required scripts to run it)
-- sbt-scalafmt (code formatter)
-- sbt-tpolecat (good scala compiler options defaults)
-- sbt-wartremover (linter)
+## From the Command Line
 
-## What is missing?
+1. Open up a terminal window.
 
-Currently there is no way to define OpenAPI specification for the web APIs, since zio-http does not have support for this (see https://github.com/zio/zio-http/issues/1520 and https://github.com/zio/zio-http/issues/1498). It is possible to use Tapir if OpenAPI specification is a must.
+2. Clone the repository.
 
-## How to run it
+    ```bash
+    git clone https://github.com/jdegoes/zio-week
+    ```
+5. Launch project provided `sbt`.
 
-You can start the Kafka (Redpanda) and Postgres using `docker compose up` and then start the application with `sbt run`. You might need to adjust the configuration of the project using a `.env` file (see the `.env.example`) or editing the `src/main/resource/application.conf`.
+    ```bash
+    cd zio-week; ./sbt
+    ```
+6. Enter continuous compilation mode.
 
-## Example usage
+    ```bash
+    sbt:zio-week> ~ test:compile
+    ```
 
-Create an item:
+Hint: You might get the following error when starting sbt:
 
-```
-curl -v --data '{"name":"lego", "price": 24.95, "productType":"Toys"}' -H "Authorization: Bearer tokenhere" -H "Content-Type: application/json" localhost:1338/items
-```
+> [error] 	typesafe-ivy-releases: unable to get resource for com.geirsson#sbt-scalafmt;1.6.0-RC4: res=https://repo.typesafe.com/typesafe/ivy-releases/com.geirsson/sbt-scalafmt/1.6.0-RC4/jars/sbt-scalafmt.jar: javax.net.ssl.SSLHandshakeException: sun.security.validator.ValidatorException: PKIX path building failed: sun.security.provider.certpath.SunCertPathBuilderException: unable to find valid certification path to requested targe
 
-View an item by id:
+It's because you have an outdated Java version, missing some newer certificates. Install a newer Java version, e.g. using [Jabba](https://github.com/shyiko/jabba), a Java version manager. See [Stackoverflow](https://stackoverflow.com/a/58669704/1885392) for more details about the error.
 
-```
-curl -v -H "Authorization: Bearer tokenhere" -H "Content-Type: application/json" localhost:1338/items/<ITEM ID HERE>
-```
+# Legal
 
-Update an item by id:
-
-```
-curl -v -X PUT --data '{"name":"Gameboy", "price": 199.95, "productType":"Electronics"}' -H "Authorization: Bearer tokenhere" -H "Content-Type: application/json" localhost:1338/items/<ITEM ID HERE>
-```
-
-Delete an item by id:
-
-```
-curl -v -X DELETE -H "Authorization: Bearer tokenhere" -H "Content-Type: application/json" localhost:1338/items/<ITEM ID HERE>
-```
+Copyright&copy; 2019-2021 John A. De Goes. All rights reserved.
