@@ -1,0 +1,414 @@
+/** ZIO
+  *
+  * ZIO is a mature, production-grade effect system in Scala, whose innovations inspried the Effect TS ecosystem and
+  * ports in many other languages.
+  *
+  * Unlike previous generation effect systems, which tended toward abstract category theory, ZIO significantly improves
+  * developer experience without compromising on the power of functional effects.
+  *
+  * ZIO's batteries-included philosophy means more joy, less pain.
+  *
+  * In this section, you'll learn the basics of ZIO.
+  */
+package net.degoes.zio
+
+import zio._
+import zio.test._
+import zio.test.TestAspect.ignore
+
+object Types:
+  type ??? = Nothing
+
+  // ZIO has three type parameters:
+  //
+  // R: The environment type, which describes context the effect requires.
+  // A: The success type, which describes the type of a successful execution.
+  // E: The failure type, which describes the type of a failed execution.
+
+  type Request
+  type Response
+  type StatusCode
+
+  /** EXERCISE 1
+    *
+    * Make the type for an effect that requries a `Request`, fails with a `StatusCode`, and succeeds with a `Response`.
+    */
+  type RequestHandler = ???
+
+  type SparkContext
+  type Dataset[A]
+
+  /** EXERCISE 2
+    *
+    * Make the type for an effect that requires a `SparkContext`, can fail with a `Throwable`, and succeeds with a
+    * `Dataset`.
+    */
+  type Job = ???
+
+object IntroSpec extends ZIOSpecDefault:
+  def spec =
+    suite("IntroSpec")(
+      test("succeed") {
+
+        /** EXERCISE 3
+          *
+          * Using `ZIO.succeed`, construct an effect that succeeds with the value 42.
+          */
+        lazy val effect: ZIO[Any, Nothing, Int] = ???
+
+        for success <- effect
+        yield assertTrue(success == 42)
+      } @@ ignore,
+      test("fail") {
+
+        /** EXERCISE 4
+          *
+          * Using `ZIO.fail`, construct an effect that fails with the value "Uh oh".
+          */
+        lazy val effect: ZIO[Any, String, Nothing] = ???
+
+        for error <- effect.flip
+        yield assertTrue(error == "Uh oh")
+      } @@ ignore,
+      test("ZIO.attempt - successful") {
+
+        /** EXERCISE 5
+          *
+          * Using `ZIO.attempt`, construct an effect that succeeds with the value 42.
+          */
+        lazy val effect: ZIO[Any, Throwable, Int] = ???
+
+        for success <- effect
+        yield assertTrue(success == 42)
+      } @@ ignore,
+      test("ZIO.attempt - failure") {
+
+        /** EXERCISE 6
+          *
+          * Using `ZIO.attempt`, construct an effect from throwing an exception with the message "Uh oh".
+          */
+        lazy val effect: ZIO[Any, Throwable, Nothing] = ???
+
+        for error <- effect.flip
+        yield assertTrue(error.getMessage == "Uh oh")
+      } @@ ignore,
+      test("ZIO#map") {
+        val effect = ZIO.succeed(42)
+
+        /** EXERCISE 7
+          *
+          * Using `ZIO#map`, transform the effect to add 1 to the value.
+          */
+        lazy val mapped: ZIO[Any, Nothing, Int] = ???
+
+        for result <- mapped
+        yield assertTrue(result == 43)
+      } @@ ignore,
+      test("ZIO#mapError") {
+        val effect = ZIO.fail("Uh oh")
+
+        /** EXERCISE 8
+          *
+          * Using `ZIO#mapError`, transform the effect to get the length of the error message.
+          */
+        lazy val mapped: ZIO[Any, Int, Nothing] = ???
+
+        for error <- mapped.flip
+        yield assertTrue(error == 5)
+      } @@ ignore,
+      test("ZIO#flatMap") {
+        val effect = ZIO.succeed(42)
+
+        /** EXERCISE 9
+          *
+          * Using `ZIO#flatMap`, transform the effect to add 1 to the value.
+          */
+        lazy val flatMapped: ZIO[Any, Nothing, Int] = ???
+
+        for result <- flatMapped
+        yield assertTrue(result == 43)
+      } @@ ignore,
+      test("ZIO#catchAll") {
+        val effect = ZIO.fail("Uh oh")
+
+        /** EXERCISE 10
+          *
+          * Using `ZIO#catchAll`, transform the effect to get the length of the error message.
+          */
+        lazy val caught: ZIO[Any, Nothing, Int] = ???
+
+        for len <- caught
+        yield assertTrue(len == 5)
+      } @@ ignore,
+      test("ZIO.(*>)") {
+        var i = 0
+
+        val increment = ZIO.succeed { i += 1; i }
+        val decrement = ZIO.succeed { i -= 1; i }
+
+        /** EXERCISE 11
+          *
+          * Using `ZIO.(*>)`, combine the `increment` and `decrement` effects to increment twice and decrement once.
+          */
+        lazy val incIncDec: ZIO[Any, Nothing, Int] = ???
+
+        for result <- incIncDec
+        yield assertTrue(result == 1)
+      } @@ ignore,
+      test("ZIO#zip") {
+        val first  = ZIO.succeed(42)
+        val second = ZIO.succeed("foo")
+
+        /** EXERCISE 12
+          *
+          * Using `ZIO#zip`, combine the `first` and `second` effects to produce a tuple of their results.
+          */
+        lazy val zipped: ZIO[Any, Nothing, (Int, String)] = ???
+
+        for result <- zipped
+        yield assertTrue(result == (42, "foo"))
+      } @@ ignore,
+      test("ZIO.foreach") {
+        val urls = List("http://url1.com", "http://url2.com", "http://url3.com")
+
+        final case class Response(body: String)
+
+        def doRequest(url: String): ZIO[Any, Nothing, Response] =
+          ZIO.succeed(Response(s"Response from $url"))
+
+        /** EXERCISE 13
+          *
+          * Using `ZIO.foreach`, transform the list of URLs into a list of responses.
+          */
+        lazy val responses: ZIO[Any, Nothing, List[Response]] = ???
+
+        for result <- responses
+        yield assertTrue(
+          result == List(
+            Response("Response from http://url1.com"),
+            Response("Response from http://url2.com"),
+            Response("Response from http://url3.com"),
+          )
+        )
+      } @@ ignore,
+    )
+
+object ZIOConcurrencySpec extends ZIOSpecDefault:
+  def spec =
+    suite("ZIOConcurrencySpec")(
+      suite("Core")(
+        test("ZIO#race") {
+
+          /** EXERCISE 14
+            *
+            * Using `ZIO#race`, race two effects, such that the winner ends up succeeding with a value of 42.
+            */
+          lazy val effect: ZIO[Any, Any, Int] = ???
+
+          for result <- effect
+          yield assertTrue(result == 42)
+
+        } @@ ignore,
+        test("ZIO#timeout") {
+
+          /** EXERCISE 15
+            *
+            * Using `ZIO#timeout`, timeout an effect that takes 1 second to complete after 500 milliseconds.
+            *
+            * You can use `ZIO.sleep` to sleep for a specified duration.
+            */
+          lazy val effect: ZIO[Any, Any, Option[Int]] = ???
+
+          for result <- effect
+          yield assertTrue(result == None)
+        } @@ ignore,
+        test("ZIO#zipPar") {
+          val first  = ZIO.succeed(42)
+          val second = ZIO.succeed("foo")
+
+          /** EXERCISE 16
+            *
+            * Using `ZIO#zipPar`, combine the `first` and `second` effects to produce a tuple of their results, where
+            * execution of the individual effects occurs concurrently (in "PARallel").
+            */
+          lazy val zipped: ZIO[Any, Nothing, (Int, String)] = ???
+
+          for result <- zipped
+          yield assertTrue(result == (42, "foo"))
+        } @@ ignore,
+        test("ZIO.foreachPar") {
+          val urls = List("http://url1.com", "http://url2.com", "http://url3.com")
+
+          final case class Response(body: String)
+
+          def doRequest(url: String): ZIO[Any, Nothing, Response] =
+            ZIO.succeed(Response(s"Response from $url"))
+
+          /** EXERCISE 17
+            *
+            * Using `ZIO.foreachPar`, transform the list of URLs into a list of responses, where the requests are made
+            * concurrently.
+            */
+          lazy val responses: ZIO[Any, Nothing, List[Response]] = ???
+
+          for result <- responses
+          yield assertTrue(
+            result == List(
+              Response("Response from http://url1.com"),
+              Response("Response from http://url2.com"),
+              Response("Response from http://url3.com"),
+            )
+          )
+        } @@ ignore,
+      ),
+      suite("Ref")(
+        test("Ref.make") {
+
+          /** EXERCISE 18
+            *
+            * Using `Ref.make`, create a new `Ref` that is initialized to 0.
+            */
+          for ref <- ??? : ZIO[Any, Nothing, Ref[Int]]
+          yield assertTrue(ref != null)
+        } @@ ignore,
+        test("Ref#get") {
+
+          /** EXERCISE 19
+            *
+            * Using `Ref#get`, get the value of the `Ref`.
+            */
+          for
+            ref   <- Ref.make(42)
+            value <- ??? : ZIO[Any, Nothing, Int]
+          yield assertTrue(value == 42)
+        } @@ ignore,
+        test("Ref#set") {
+
+          /** EXERCISE 20
+            *
+            * Using `Ref#set`, set the value of the `Ref` to 42.
+            */
+          for
+            ref   <- Ref.make(0)
+            _     <- ??? : ZIO[Any, Nothing, Unit]
+            value <- ref.get
+          yield assertTrue(value == 42)
+        } @@ ignore,
+        test("Ref#update") {
+
+          /** EXERCISE 21
+            *
+            * Using `Ref#update`, increment the value of the `Ref` by 1.
+            */
+          for
+            ref   <- Ref.make(0)
+            _     <- ??? : ZIO[Any, Nothing, Unit]
+            value <- ref.get
+          yield assertTrue(value == 1)
+        } @@ ignore,
+        test("Ref#modify") {
+
+          /** EXERCISE 22
+            *
+            * Using `Ref#modify`, increment the value of the `Ref` by 1 and return the old value.
+            */
+          for
+            ref   <- Ref.make(0)
+            old   <- ??? : ZIO[Any, Nothing, Int]
+            value <- ref.get
+          yield assertTrue(old == 0) && assertTrue(value == 1)
+        } @@ ignore,
+      ),
+      suite("Promise")(
+        test("Promise.make") {
+
+          /** EXERCISE 23
+            *
+            * Using `Promise.make`, create a new promise that can be used to produce an integer value.
+            */
+          for promise <- ??? : ZIO[Any, Nothing, Promise[Nothing, Int]]
+          yield assertTrue(promise != null)
+        } @@ ignore,
+        test("Promise#succeed") {
+
+          /** EXERCISE 24
+            *
+            * Using `Promise#succeed`, complete the specified promise with the value 42.
+            */
+          for
+            promise <- Promise.make[Nothing, Int]
+            _       <- ??? : ZIO[Any, Nothing, Unit]
+            value   <- promise.await
+          yield assertTrue(value == 42)
+        } @@ ignore,
+        test("Promise#fail") {
+
+          /** EXERCISE 25
+            *
+            * Using `Promise#fail`, complete the specified promise with the error "Uh oh".
+            */
+          for
+            promise <- Promise.make[String, Int]
+            _       <- ??? : ZIO[Any, Nothing, Unit]
+            error   <- promise.await.flip
+          yield assertTrue(error == "Uh oh")
+        } @@ ignore,
+        test("Promise#await") {
+
+          /** EXERCISE 26
+            *
+            * Using `Promise#await`, await the result of the promise.
+            */
+          for
+            promise <- Promise.make[String, Int]
+            _       <- (ZIO.sleep(10.millis) *> promise.succeed(42)).fork
+            value   <- ??? : ZIO[Any, Nothing, Int]
+          yield assertTrue(value == 42)
+        } @@ ignore,
+      ),
+      suite("Queue")(
+        test("Queue.bounded") {
+
+          /** EXERCISE 27
+            *
+            * Using `Queue.bounded`, create a new bounded queue that can hold up to 100 integers.
+            */
+          for queue <- ??? : ZIO[Any, Nothing, Queue[Int]]
+          yield assertTrue(queue != null)
+        } @@ ignore,
+        test("Queue#offer") {
+
+          /** EXERCISE 28
+            *
+            * Using `Queue#offer`, offer the value 42 to the specified queue.
+            */
+          for
+            queue <- Queue.bounded[Int](100)
+            _     <- ??? : ZIO[Any, Nothing, Unit]
+          yield assertTrue(true)
+        } @@ ignore,
+        test("Queue#take") {
+
+          /** EXERCISE 29
+            *
+            * Using `Queue#take`, take a value from the specified queue.
+            */
+          for
+            queue <- Queue.bounded[Int](100)
+            _     <- queue.offer(42)
+            value <- ??? : ZIO[Any, Nothing, Int]
+          yield assertTrue(value == 42)
+        } @@ ignore,
+        test("Queue#shutdown") {
+
+          /** EXERCISE 30
+            *
+            * Using `Queue#shutdown`, shutdown the specified queue.
+            */
+          for
+            queue <- Queue.bounded[Int](100)
+            _     <- ??? : ZIO[Any, Nothing, Unit]
+          yield assertTrue(true)
+        } @@ ignore,
+      ),
+    )
