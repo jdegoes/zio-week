@@ -191,6 +191,23 @@ object IntroSpec extends ZIOSpecDefault:
           )
         )
       } @@ ignore,
+      test("ZIO.service") {
+        trait Logger {
+          def log(line: String): ZIO[Any, Nothing, Unit] = ZIO.succeed(println(line))
+        }
+        object Logger extends Logger
+
+        /** EXERCISE 14
+          *
+          * Using `ZIO.service`, create an effect that requires a value of type `Logger` from the environment. Do not
+          * worry about the specifics of providing the effect its required context, as that is done for you, and will be
+          * explored in more detail later.
+          */
+        (for
+          logger <- ??? : ZIO[Logger, Nothing, Logger]
+          _      <- logger.log("Hello, world!")
+        yield assertTrue(true)).provide(ZLayer.succeed(Logger))
+      },
     )
 
 object ZIOConcurrencySpec extends ZIOSpecDefault:
@@ -199,7 +216,7 @@ object ZIOConcurrencySpec extends ZIOSpecDefault:
       suite("Core")(
         test("ZIO#race") {
 
-          /** EXERCISE 14
+          /** EXERCISE 15
             *
             * Using `ZIO#race`, race two effects, such that the winner ends up succeeding with a value of 42.
             */
@@ -211,7 +228,7 @@ object ZIOConcurrencySpec extends ZIOSpecDefault:
         } @@ ignore,
         test("ZIO#timeout") {
 
-          /** EXERCISE 15
+          /** EXERCISE 16
             *
             * Using `ZIO#timeout`, timeout an effect that takes 1 second to complete after 500 milliseconds.
             *
@@ -226,7 +243,7 @@ object ZIOConcurrencySpec extends ZIOSpecDefault:
           val first  = ZIO.succeed(42)
           val second = ZIO.succeed("foo")
 
-          /** EXERCISE 16
+          /** EXERCISE 17
             *
             * Using `ZIO#zipPar`, combine the `first` and `second` effects to produce a tuple of their results, where
             * execution of the individual effects occurs concurrently (in "PARallel").
@@ -244,7 +261,7 @@ object ZIOConcurrencySpec extends ZIOSpecDefault:
           def doRequest(url: String): ZIO[Any, Nothing, Response] =
             ZIO.succeed(Response(s"Response from $url"))
 
-          /** EXERCISE 17
+          /** EXERCISE 18
             *
             * Using `ZIO.foreachPar`, transform the list of URLs into a list of responses, where the requests are made
             * concurrently.
@@ -264,7 +281,7 @@ object ZIOConcurrencySpec extends ZIOSpecDefault:
       suite("Ref")(
         test("Ref.make") {
 
-          /** EXERCISE 18
+          /** EXERCISE 19
             *
             * Using `Ref.make`, create a new `Ref` that is initialized to 0.
             */
@@ -273,7 +290,7 @@ object ZIOConcurrencySpec extends ZIOSpecDefault:
         } @@ ignore,
         test("Ref#get") {
 
-          /** EXERCISE 19
+          /** EXERCISE 20
             *
             * Using `Ref#get`, get the value of the `Ref`.
             */
@@ -284,7 +301,7 @@ object ZIOConcurrencySpec extends ZIOSpecDefault:
         } @@ ignore,
         test("Ref#set") {
 
-          /** EXERCISE 20
+          /** EXERCISE 21
             *
             * Using `Ref#set`, set the value of the `Ref` to 42.
             */
@@ -296,7 +313,7 @@ object ZIOConcurrencySpec extends ZIOSpecDefault:
         } @@ ignore,
         test("Ref#update") {
 
-          /** EXERCISE 21
+          /** EXERCISE 22
             *
             * Using `Ref#update`, increment the value of the `Ref` by 1.
             */
@@ -308,7 +325,7 @@ object ZIOConcurrencySpec extends ZIOSpecDefault:
         } @@ ignore,
         test("Ref#modify") {
 
-          /** EXERCISE 22
+          /** EXERCISE 23
             *
             * Using `Ref#modify`, increment the value of the `Ref` by 1 and return the old value.
             */
@@ -322,7 +339,7 @@ object ZIOConcurrencySpec extends ZIOSpecDefault:
       suite("Promise")(
         test("Promise.make") {
 
-          /** EXERCISE 23
+          /** EXERCISE 24
             *
             * Using `Promise.make`, create a new promise that can be used to produce an integer value.
             */
@@ -331,7 +348,7 @@ object ZIOConcurrencySpec extends ZIOSpecDefault:
         } @@ ignore,
         test("Promise#succeed") {
 
-          /** EXERCISE 24
+          /** EXERCISE 25
             *
             * Using `Promise#succeed`, complete the specified promise with the value 42.
             */
@@ -343,7 +360,7 @@ object ZIOConcurrencySpec extends ZIOSpecDefault:
         } @@ ignore,
         test("Promise#fail") {
 
-          /** EXERCISE 25
+          /** EXERCISE 26
             *
             * Using `Promise#fail`, complete the specified promise with the error "Uh oh".
             */
@@ -355,7 +372,7 @@ object ZIOConcurrencySpec extends ZIOSpecDefault:
         } @@ ignore,
         test("Promise#await") {
 
-          /** EXERCISE 26
+          /** EXERCISE 27
             *
             * Using `Promise#await`, await the result of the promise.
             */
@@ -369,7 +386,7 @@ object ZIOConcurrencySpec extends ZIOSpecDefault:
       suite("Queue")(
         test("Queue.bounded") {
 
-          /** EXERCISE 27
+          /** EXERCISE 28
             *
             * Using `Queue.bounded`, create a new bounded queue that can hold up to 100 integers.
             */
@@ -378,7 +395,7 @@ object ZIOConcurrencySpec extends ZIOSpecDefault:
         } @@ ignore,
         test("Queue#offer") {
 
-          /** EXERCISE 28
+          /** EXERCISE 29
             *
             * Using `Queue#offer`, offer the value 42 to the specified queue.
             */
@@ -389,7 +406,7 @@ object ZIOConcurrencySpec extends ZIOSpecDefault:
         } @@ ignore,
         test("Queue#take") {
 
-          /** EXERCISE 29
+          /** EXERCISE 30
             *
             * Using `Queue#take`, take a value from the specified queue.
             */
@@ -401,7 +418,7 @@ object ZIOConcurrencySpec extends ZIOSpecDefault:
         } @@ ignore,
         test("Queue#shutdown") {
 
-          /** EXERCISE 30
+          /** EXERCISE 31
             *
             * Using `Queue#shutdown`, shutdown the specified queue.
             */
@@ -411,4 +428,78 @@ object ZIOConcurrencySpec extends ZIOSpecDefault:
           yield assertTrue(true)
         } @@ ignore,
       ),
+    )
+
+object ZIOResourceSpec extends ZIOSpecDefault:
+  def spec =
+    suite("ZIOResourceSpec")(
+      test("ZIO.acquireReleaseWith") {
+
+        final case class File(path: String)
+
+        @volatile var count = 0
+
+        val acquire = ZIO.succeed { count += 1; File("foo.txt") }
+        val release = (resource: File) => ZIO.succeed(count -= 1)
+
+        /** EXERCISE 32
+          *
+          * Using `ZIO.acquireReleaseWith`, acquire a resource, use it, and then release it.
+          */
+        lazy val bracketed: ZIO[Any, Nothing, Int] =
+          ???
+
+        for result <- bracketed
+        yield assertTrue(count == 0)
+      } @@ ignore,
+      test("ZIO#ensuring") {
+        @volatile var count = 0
+
+        val incrementCounter = ZIO.succeed(count += 1)
+
+        /** EXERCISE 33
+          *
+          * Using `ZIO#ensuring`, modify the following effect so that the effect `incrementCounter` is executed no
+          * matter what.
+          */
+        lazy val ensuring: ZIO[Any, String, Int] =
+          ZIO.fail("Uh oh!")
+
+        for error <- ensuring.flip
+        yield assertTrue(count == 1 && error == "Uh oh!")
+      } @@ ignore,
+      test("ZIO#onExit") {
+        @volatile var count = 0
+
+        val incrementCounter = ZIO.succeed(count += 1)
+
+        /** EXERCISE 34
+          *
+          * Using `ZIO#onExit`, modify the following effect so that the effect `incrementCounter` is executed no matter
+          * what.
+          */
+        lazy val onExit: ZIO[Any, String, Int] =
+          ZIO.fail("Uh oh!")
+
+        for error <- onExit.flip
+        yield assertTrue(count == 1 && error == "Uh oh!")
+      } @@ ignore,
+      test("ZIO.addFinalizer + ZIO.scoped") {
+        @volatile var count = 0
+
+        val incrementCounter = ZIO.succeed(count += 1)
+
+        /** EXERCISE 35
+          *
+          * Using `ZIO.addFinalizer`, add a finalizer which just increments the counter. Add this finalizer in the first
+          * line of the for comprehension.
+          *
+          * This will introduce a `Scope` dependency in your effect, which you should eliminate using `ZIO.scoped`.
+          */
+
+        (for
+          _     <- ZIO.addFinalizer(incrementCounter)
+          error <- ZIO.fail("Uh oh!").flip
+        yield error).flatMap(error => assertTrue(count == 1 && error == "Uh oh!"))
+      } @@ ignore,
     )
