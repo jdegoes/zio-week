@@ -13,6 +13,7 @@ import zio.test.TestAspect.ignore
 
 import java.util.concurrent.ScheduledExecutorService
 import java.util.concurrent.TimeUnit
+import java.util.concurrent.Executor
 
 def time(label: String)(f: => Unit): Unit =
   val start = System.currentTimeMillis()
@@ -111,12 +112,16 @@ trait Async[+A]:
       result.get
 
 object Async:
+  val cpuExecutor: Executor = java.util.concurrent.Executors.newFixedThreadPool(4)
   val scheduledExecutor: ScheduledExecutorService = java.util.concurrent.Executors.newScheduledThreadPool(4)
 
   def apply[A](f: (A => Unit) => Unit): Async[A] = new Async[A]:
     def subscribe(callback: A => Unit): Unit = f(callback)
 
-  def succeed[A](value: A): Async[A] = 
+  def background[A](value: => A): Async[A] = 
+    Async(callback => cpuExecutor.execute(() => value))
+
+  def succeed[A](value: => A): Async[A] = 
     new Async[A]:
       def subscribe(callback: A => Unit): Unit = 
         callback(value)
