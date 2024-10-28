@@ -2,7 +2,7 @@
 
 A full week of training covering functional effects and more.
 
- - Material: http://github.com/jdegoez/zio-week
+ - Material: http://github.com/jdegoes/zio-week
  - Discord: https://discord.gg/dAbfksd
 
 # Daily Schedule

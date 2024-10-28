@@ -6,19 +6,11 @@ val zioPreludeVersion     = "1.0.0-RC31"
 val zioConfigVersion      = "4.0.2"
 val zioLoggingVersion     = "2.3.2"
 val logbackClassicVersion = "1.5.11"
-val quillVersion          = "4.8.5"
 val postgresqlVersion     = "42.7.4"
 val flywayVersion         = "10.20.0"
 val chimneyVersion        = "1.5.0"
 val testContainersVersion = "0.41.4"
 val zioMockVersion        = "1.0.0-RC12"
-
-lazy val quillNamingStrategy =
-  (project in file("quill"))
-    .settings(
-      name                                  := "zioapp-quill",
-      libraryDependencies ++= "io.getquill" %% "quill-jdbc-zio" % quillVersion :: Nil,
-    )
 
 lazy val root = (project in file("."))
   .settings(
@@ -30,9 +22,6 @@ lazy val root = (project in file("."))
     ),
     name                    := "zio-week",
     libraryDependencies ++= Seq(
-      "io.getquill"   %% "quill-jdbc-zio"             % quillVersion excludeAll (
-        ExclusionRule(organization = "org.scala-lang.modules")
-      ),
       "org.postgresql" % "postgresql"                 % postgresqlVersion,
       "org.flywaydb"   % "flyway-core"                % flywayVersion,
       "org.flywaydb"   % "flyway-database-postgresql" % flywayVersion,
@@ -63,7 +52,6 @@ lazy val root = (project in file("."))
     // try using the `tpolecatScalacOptions` configuration key for any additional compiler flags
     Compile / doc / sources := Seq.empty,
   )
-  .dependsOn(quillNamingStrategy)
   .enablePlugins(JavaAppPackaging, UniversalPlugin)
 
 addCommandAlias("fmt", "all scalafmtSbt scalafmtAll")
