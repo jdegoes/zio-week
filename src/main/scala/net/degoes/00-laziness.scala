@@ -13,16 +13,49 @@ import zio.test.TestAspect.ignore
 object Job:
   protected val executor = java.util.concurrent.Executors.newFixedThreadPool(4)
 
-  def apply(step: => Unit): Job = ???
+  def apply(step: => Unit): Job =
+    new Job:
+      def run(): Unit = step
 
 trait Job:
-  def run(): Unit
+  self => 
+    def run(): Unit
 
-  def andThen(job: Job): Job = ???
+    def andThen(job: Job): Job = 
+      new Job:
+        def run(): Unit = 
+          self.run()
+          job.run()
 
-  def andConcurrently(job: Job): Job = ???
+    def andConcurrently(job: Job): Job =
+      new Job:
+        def run(): Unit = 
+          val left = 
+            new Thread:
+              override def run(): Unit = self.run()
 
-  def eventually: Job = ???
+          val right = 
+            new Thread:
+              override def run(): Unit = job.run()
+
+          left.start()
+          right.start()
+
+          left.join()
+          right.join()
+
+    def eventually: Job = 
+      new Job:
+        def run(): Unit = 
+          var trying = true 
+
+          while (trying)
+            try
+              self.run() 
+              trying = false
+            catch 
+              case _ : Throwable => 
+            
 
 object JobSpec extends ZIOSpecDefault:
   def spec =
@@ -38,11 +71,13 @@ object JobSpec extends ZIOSpecDefault:
           * specified by-name step is evaluated.
           */
         assertCompletes
-      } @@ ignore,
+      },
       test("deferment") {
         var i = 0
 
         val job = Job(i += 1)
+
+        job.run()
 
         /** EXERCISE 2
           *
@@ -50,22 +85,22 @@ object JobSpec extends ZIOSpecDefault:
           * assumption so the test will pass.
           */
         assertTrue(i == 1)
-      } @@ ignore,
+      },
       test("re-evaluation") {
         var i = 0
 
         val job = Job(i += 1)
 
         job.run()
-        job.run()
+        job.run()      
 
         /** EXERCISE 3
           *
           * This test is currently failing. Explain why the test must necessarily fail, and then fix the broken
           * assumption so the test will pass.
           */
-        assertTrue(i == 1)
-      } @@ ignore,
+        assertTrue(i == 2)
+      },
       test("sequential composition") {
         var i = 0
 
@@ -82,7 +117,7 @@ object JobSpec extends ZIOSpecDefault:
           * a way as to make the test pass and try to reverse engineer its meaning.
           */
         assertTrue(i == 1)
-      } @@ ignore,
+      },
       test("parallel composition") {
         @volatile var first  = 0
         @volatile var second = 0
@@ -104,7 +139,9 @@ object JobSpec extends ZIOSpecDefault:
       test("error recovery") {
         val flakyJob = Job(if (Math.random() < 0.9) throw new Error("Uh oh!") else ())
 
-        flakyJob.eventually.run()
+        val nonFlakyJob = flakyJob.eventually
+        
+        nonFlakyJob.run()
 
         /** EXERCISE 6
           *
@@ -118,16 +155,58 @@ object JobSpec extends ZIOSpecDefault:
 object Workflow:
   protected val executor = java.util.concurrent.Executors.newFixedThreadPool(4)
 
-  def apply[A](step: => A): Workflow[A] = ???
+  def apply[A](step: => A): Workflow[A] = 
+    new Workflow:
+      def run(): A = step
 
 trait Workflow[+A]:
-  def run(): A
+  self => 
+    def run(): A
 
-  def andThen[B](next: Workflow[B]): Workflow[(A, B)] = ???
+    def andThen[B](next: Workflow[B]): Workflow[(A, B)] = 
+      new Workflow[(A, B)]:
+        def run(): (A, B) = 
+          val a: A = self.run() 
+          val b: B = next.run() 
 
-  def andConcurrently[B](concurrent: Workflow[B]): Workflow[(A, B)] = ???
+          (a, b)
 
-  def eventually: Workflow[A] = ???
+    def andConcurrently[B](concurrent: Workflow[B]): Workflow[(A, B)] = 
+      new Workflow[(A, B)]:
+        def run(): (A, B) = 
+          var leftValue = Option.empty[A]
+          var rightValue = Option.empty[B]
+
+          val left = 
+            new Thread:
+              override def run(): Unit = 
+                leftValue = Some(self.run())
+
+          val right = 
+            new Thread:
+              override def run(): Unit = 
+                rightValue = Some(concurrent.run())
+
+          left.start()
+          right.start()
+
+          left.join()
+          right.join()
+
+          (leftValue.get, rightValue.get)
+
+    def eventually: Workflow[A] = 
+      new Workflow[A]:
+        def run(): A = 
+          var value = Option.empty[A]
+
+          while (value.isEmpty)
+            try
+              value = Some(self.run())
+            catch 
+              case _ : Throwable => 
+
+          value.get
 
 object WorkflowSpec extends ZIOSpecDefault:
   def spec =
@@ -141,7 +220,7 @@ object WorkflowSpec extends ZIOSpecDefault:
           * specified by-name step is evaluated.
           */
         assertTrue(workflow.run() == 42)
-      } @@ ignore,
+      },
       test("sequential composition") {
         var i = 0
 
