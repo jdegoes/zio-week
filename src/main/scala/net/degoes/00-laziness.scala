@@ -267,41 +267,92 @@ object WorkflowSpec extends ZIOSpecDefault:
     )
 
 object Effect:
-  def apply[A](step: => A): Effect[A] = ???
+  def apply[A](step: => A): Effect[A] = 
+    new Effect:
+      def run(): A = step
 
 trait Effect[+A]:
-  def run(): A
+  self => 
+    def run(): A
 
-  def map[B](f: A => B): Effect[B] = ???
+    def map[B](f: A => B): Effect[B] = 
+      new Effect:
+        def run(): B = 
+          f(self.run())
 
-  def flatMap[B](f: A => Effect[B]): Effect[B] = ???
+    def flatMap[B](f: A => Effect[B]): Effect[B] = 
+      new Effect:
+        def run(): B = 
+          val a = self.run()
 
-  def zip[B](that: Effect[B]): Effect[(A, B)] = ???
+          f(a).run()
 
-  def zipPar[B](that: Effect[B]): Effect[(A, B)] = ???
+    def zip[B](that: Effect[B]): Effect[(A, B)] = 
+      flatMap(a => that.map(b => (a, b)))
 
-  def eventually: Effect[A] = ???
+    def zipPar[B](that: Effect[B]): Effect[(A, B)] = 
+      new Effect[(A, B)]:
+        def run(): (A, B) = 
+          var leftValue = Option.empty[A]
+          var rightValue = Option.empty[B]
+
+          val left = 
+            new Thread:
+              override def run(): Unit = 
+                leftValue = Some(self.run())
+
+          val right = 
+            new Thread:
+              override def run(): Unit = 
+                rightValue = Some(that.run())
+
+          left.start()
+          right.start()
+
+          left.join()
+          right.join()
+
+          (leftValue.get, rightValue.get)
+
+    def eventually: Effect[A] = 
+      new Effect[A]:
+        def run(): A = 
+          var value = Option.empty[A]
+
+          while (value.isEmpty)
+            try
+              value = Some(self.run())
+            catch 
+              case _ : Throwable => 
+
+          value.get
 
 object EffectSpec extends ZIOSpecDefault:
   def spec =
     suite("EffectSpec")(
       test("execution") {
-        val effect = Effect(42)
+        val effect = Effect(42).map(int => int.toString())
 
         /** EXERCISE 11
           *
           * Implement the primary constructor for `Effect` so that when the instance's `run` method is invoked, the
           * specified by-name step is evaluated.
           */
-        assertTrue(effect.run() == 42)
-      } @@ ignore,
+        assertTrue(effect.run() == "42")
+      },
       test("sequential composition") {
         var i = 0
 
         val increment = Effect(i += 1)
         val decrement = Effect(i -= 1)
 
-        val all = increment.flatMap(_ => decrement).flatMap(_ => increment)
+        // increment.flatMap(a => decrement.flatMap(b => increment.map(c =>())))
+        val all = 
+          for 
+            _ <- increment
+            _ <- decrement
+            _ <- increment
+          yield ()
 
         all.run()
 
@@ -334,3 +385,29 @@ object EffectSpec extends ZIOSpecDefault:
         assertTrue(flakyEffect.eventually.run() == 42)
       },
     )
+
+trait EffectMain:
+  def main(args: Array[String]): Unit = effect.run()
+
+  def effect: Effect[Any]
+
+object Demo extends EffectMain:
+  def printLine(line: String): Effect[Unit] = 
+    Effect(println(line))
+
+  val readLine: Effect[String] = 
+    Effect(scala.io.StdIn.readLine())
+
+  def convertToDogYears(string: String): Int = 
+    string.toInt / 7
+
+  val effect = 
+    for 
+      _   <- printLine("What is your age in human years?")
+      age <- readLine
+      _   <- printLine(s"Your age in dog years is ${convertToDogYears(age)}")
+    yield ()
+
+
+
+  

@@ -12,6 +12,7 @@ import zio.test._
 import zio.test.TestAspect.ignore
 
 import java.util.concurrent.ScheduledExecutorService
+import java.util.concurrent.TimeUnit
 
 def time(label: String)(f: => Unit): Unit =
   val start = System.currentTimeMillis()
@@ -31,7 +32,7 @@ object OSThreadTester:
       * Using the `time` function, measure how long it takes to start a million OS threads.
       */
     time("A million OS threads"):
-      ???
+      (0 to 1000000).foreach(_ => startThread())
 
 object GreenThreadTester:
   val scheduler = java.util.concurrent.Executors.newScheduledThreadPool(4)
@@ -49,28 +50,65 @@ object GreenThreadTester:
   @main
   def startAMillion2(): Unit =
     time("A million green threads"):
-      ???
+      (0 to 1000000).foreach(_ => startGreenThread())
 
 trait Async[+A]:
-  def subscribe(callback: A => Unit): Unit
+  self => 
+    def subscribe(callback: A => Unit): Unit
 
-  def map[B](f: A => B): Async[B] = ???
+    def map[B](f: A => B): Async[B] = 
+      new Async[B]:
+        def subscribe(callback: B => Unit): Unit =
+          self.subscribe(a => callback(f(a)))
 
-  def sequence[B](that: Async[B]): Async[(A, B)] = ???
+    def sequence[B](that: Async[B]): Async[(A, B)] = 
+      flatMap(a => that.map(b => (a, b)))
 
-  def flatMap[B](f: A => Async[B]): Async[B] = ???
+    def flatMap[B](f: A => Async[B]): Async[B] = 
+      new Async[B]:
+        def subscribe(callback: B => Unit): Unit = 
+          self.subscribe(a => f(a).subscribe(callback))
 
-  def zipPar[B](that: Async[B]): Async[(A, B)] = ???
+    def zipPar[B](that: Async[B]): Async[(A, B)] = 
+      new Async[(A, B)]:
+        def subscribe(callback: ((A, B)) => Unit): Unit = 
+          val reference = new java.util.concurrent.atomic.AtomicReference[(Option[A], Option[B])]((None, None))
 
-  // This is intentionally broken. You will fix it in the exercises.
-  def block: A =
-    var result: Option[A] = None
+          def check(tuple: (Option[A], Option[B])): Unit = 
+            tuple match {
+              case (Some(a), Some(b)) => callback((a, b))
+              case _ => ()
+            }
 
-    subscribe { a =>
-      result = Some(a)
-    }
+          self.subscribe(a => reference.updateAndGet { 
+            case (_, optionB) => 
+              val tuple2 = (Some(a), optionB)
 
-    result.get
+              check(tuple2)
+
+              tuple2
+          })
+
+          that.subscribe(b => reference.updateAndGet {
+            case (optionA, _) => 
+              val tuple2 = (optionA, Some(b))
+
+              check(tuple2)
+
+              tuple2
+          })
+
+    def block: A =
+      @volatile var result: Option[A] = None
+      val latch = new java.util.concurrent.CountDownLatch(1)
+
+      subscribe { a =>
+        result = Some(a)
+        latch.countDown()
+      }
+
+      latch.await()
+      result.get
 
 object Async:
   val scheduledExecutor: ScheduledExecutorService = java.util.concurrent.Executors.newScheduledThreadPool(4)
@@ -78,12 +116,34 @@ object Async:
   def apply[A](f: (A => Unit) => Unit): Async[A] = new Async[A]:
     def subscribe(callback: A => Unit): Unit = f(callback)
 
-  def succeed[A](value: A): Async[A] = ???
+  def succeed[A](value: A): Async[A] = 
+    new Async[A]:
+      def subscribe(callback: A => Unit): Unit = 
+        callback(value)
 
-  def sleep(duration: Long): Async[Unit] = ???
+  def sleep(duration: Long): Async[Unit] = 
+    new Async[Unit]:
+      def subscribe(callback: Unit => Unit): Unit = 
+        val runnable: Runnable = 
+          new Runnable:
+            def run(): Unit = callback(())
 
-  def awaitAll[A](asyncs: Iterable[Async[A]]): Async[Seq[A]] = ???
+        scheduledExecutor.schedule(runnable, duration, TimeUnit.MILLISECONDS)
 
+  def awaitAll[A](asyncs: Iterable[Async[A]]): Async[Seq[A]] = 
+    val list = asyncs.toList 
+
+    def loop(list: List[Async[A]]): Async[List[A]] = 
+      list match
+        case head :: next =>           
+          val tail = loop(next)
+
+          head.zipPar(tail).map(_ :: _)
+
+        case Nil => Async.succeed(Nil)
+
+    loop(list)
+      
   def awaitAll[A](asyncs: Async[A]*): Async[Seq[A]] = awaitAll(asyncs.toSeq)
 
 object AsyncSpec extends ZIOSpecDefault:
@@ -94,11 +154,11 @@ object AsyncSpec extends ZIOSpecDefault:
 
         /** EXERCISE 3
           *
-          * Implement the `success` method on `Async` so that it returns an `Async` that immediately succeeds with the
+          * Implement the `succeed` method on `Async` so that it returns an `Async` that immediately succeeds with the
           * specified value.
           */
         assertTrue(async.block == 42)
-      } @@ ignore,
+      },
       test("map") {
         val async = Async.succeed(42).map(_ + 1)
 
@@ -108,7 +168,7 @@ object AsyncSpec extends ZIOSpecDefault:
           * the value produced by the source `Async`.
           */
         assertTrue(async.block == 43)
-      } @@ ignore,
+      },
       test("sequence") {
         val async = Async.succeed(42).sequence(Async.succeed("Hello"))
 
@@ -118,7 +178,7 @@ object AsyncSpec extends ZIOSpecDefault:
           * produced by the source `Async` and the specified `Async`.
           */
         assertTrue(async.block == (42, "Hello"))
-      } @@ ignore,
+      },
       test("flatMap") {
         val async = Async.succeed(42).flatMap(n => Async.succeed(n + 1))
 
@@ -128,7 +188,7 @@ object AsyncSpec extends ZIOSpecDefault:
           * to the value produced by the source `Async`.
           */
         assertTrue(async.block == 43)
-      } @@ ignore,
+      },
       test("block") {
 
         val async = Async { callback =>
@@ -143,7 +203,7 @@ object AsyncSpec extends ZIOSpecDefault:
           * the `Async`.
           */
         assertTrue(async.block == 42)
-      } @@ ignore,
+      },
       test("sleep") {
         val start = System.currentTimeMillis()
 
@@ -157,7 +217,7 @@ object AsyncSpec extends ZIOSpecDefault:
           * before producing a value.
           */
         assertTrue(end - start >= 100)
-      } @@ ignore,
+      },
       test("zipPar") {
         val async = Async.sleep(10).map(_ => 42).zipPar(Async.sleep(10).map(_ => "Hello"))
 
@@ -167,7 +227,7 @@ object AsyncSpec extends ZIOSpecDefault:
           * produced by the source `Async` and the specified `Async`, running both computations concurrently.
           */
         assertTrue(async.block == (42, "Hello"))
-      } @@ ignore,
+      },
       test("awaitAll") {
         val async =
           Async.awaitAll(
@@ -181,5 +241,5 @@ object AsyncSpec extends ZIOSpecDefault:
           * values produced by the specified `Async` values.
           */
         assertTrue(async.block == Seq(42, "Hello"))
-      } @@ ignore,
+      },
     )
