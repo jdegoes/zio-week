@@ -2,6 +2,15 @@
 
 A full week of training covering functional effects and more.
 
+ - Material: http://github.com/jdegoez/zio-week
+ - Discord: https://discord.gg/dAbfksd
+
+# Daily Schedule
+
+ - **Start**: 9:00 AM
+ - **Lunch Break**: 12:30 Noon - 1:30 PM
+ - **End of Day**: 5:00 PM
+
 # Usage
 
 ## From the UI
