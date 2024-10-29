@@ -81,7 +81,7 @@ object TodoApp:
 object TodoAppMain extends ZIOAppDefault:
   /** EXERCISE 6
     *
-    * Wire up the entire applicatio by providing the `TodoApp` with all the layers that are required for its
+    * Wire up the entire application by providing the `TodoApp` with all the layers that are required for its
     * dependencies.
     */
   val run =

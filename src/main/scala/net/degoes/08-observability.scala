@@ -16,7 +16,7 @@ object AsyncTraces extends ZIOSpecDefault {
   def spec =
     suite("AsyncTraces") {
 
-      /** EXERCISE
+      /** EXERCISE 1
         *
         * Pull out the `traces` associated with the following sandboxed failure, and verify there is at least one trace
         * element.
@@ -68,7 +68,7 @@ object TracesSpec extends ZIOSpecDefault:
             child1  <- ZIO.foreach(1 to 100000)(_ => ZIO.unit).forkDaemon
           } yield ()
 
-        /** EXERCISE 1
+        /** EXERCISE 3
           *
           * Compute and print out all fiber dumps of the fibers running in this test. Note that you should also explore
           * `Fiber.dumpAll` and `Fiber.dumpAllWith`.
@@ -83,4 +83,70 @@ object TracesSpec extends ZIOSpecDefault:
     )
 
 object LoggingSpec extends ZIOSpecDefault:
-  def spec = suite("LoggingSpec")()
+  def spec = suite("LoggingSpec")(
+    test("basic") {
+
+      /** EXERCISE
+        *
+        * Use `ZIO.logInfo` to log a message at the `Info` level.
+        */
+      lazy val logged: ZIO[Any, Nothing, Unit] =
+        ???
+
+      for _ <- logged
+      yield assertCompletes
+    } @@ ignore,
+    test("log error cause") {
+      val cause = Cause.fail("Uh oh!")
+
+      /** EXERCISE
+        *
+        * Use `ZIO.logErrorCause` to log an cause error message at the `Error` level.
+        */
+      lazy val logged: ZIO[Any, Nothing, Unit] =
+        ???
+
+      for _ <- logged
+      yield assertCompletes
+    } @@ ignore,
+    test("aspect logging") {
+
+      /** EXERCISE
+        *
+        * Use `ZIOAspect.logged` to create an aspect that can be used for logging effects.
+        */
+      lazy val logged: ZIOAspect[Nothing, Any, Nothing, Any, Nothing, Any] =
+        ???
+
+      for _ <- ZIO.succeed(42) @@ logged
+      yield assertCompletes
+    } @@ ignore,
+  )
+
+object MetricsSpec extends ZIOSpecDefault:
+  import zio.metrics._
+
+  def spec = suite("MetricsSpec")(
+    test("counter") {
+
+      /** EXERCISE
+        *
+        * Create a counter using `Metric.counter`.
+        */
+      lazy val counter: Metric.Counter[Long] = ???
+
+      for _ <- counter.update(1)
+      yield assertCompletes
+    } @@ ignore,
+    test("gauge") {
+
+      /** EXERCISE
+        *
+        * Create a gauge using `Metric.gauge`.
+        */
+      lazy val gauge: Metric.Gauge[Double] = ???
+
+      for _ <- gauge.update(42)
+      yield assertCompletes
+    } @@ ignore,
+  )

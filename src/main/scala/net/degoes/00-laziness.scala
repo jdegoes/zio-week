@@ -253,5 +253,5 @@ object EffectSpec extends ZIOSpecDefault:
         val flakyEffect = Effect(if (Math.random() < 0.9) throw new Error("Uh oh!") else 42)
 
         assertTrue(flakyEffect.eventually.run() == 42)
-      },
+      } @@ ignore,
     )
