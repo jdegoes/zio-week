@@ -275,32 +275,26 @@ class Queue[A](ref: Ref[Either[::[A], List[Promise[A]]]]):
     yield ()
 
   def take: Async[A] = 
-    def modifyState(promise: Promise[A]): Async[Option[A]] = 
-      ref.modify[Option[A]] {
+    def modifyState(promise: Promise[A]): Async[Async[Unit]] = 
+      ref.modify[Async[Unit]] {
         case Left(::(a, as)) => 
           val newState =
             as match
               case x @ (_ :: _) => Left(x)
               case Nil => Right(Nil)
 
-          (Some(a), newState)
+          (promise.complete(a), newState)
           
         case Right(promises) => 
           val newState = 
             Right(promise :: promises)
 
-          (None, newState)
+          (Async.succeed(()), newState)
       }
-
-    def completePromise(option: Option[A], promise: Promise[A]): Async[Unit] = 
-      option match 
-        case None => Async.succeed(())
-        case Some(a) => promise.complete(a)
-
     for 
       promise <- Promise.make[A]
-      option  <- modifyState(promise)
-      _       <- completePromise(option, promise)
+      async   <- modifyState(promise)    
+      _       <- async  
       a       <- promise.await
     yield a
 
@@ -329,12 +323,39 @@ object QueueSpec extends ZIOSpecDefault:
     )
 
 object Semaphore:
-  def make(n: Int): Async[Semaphore] = ???
+  def make(n: Int): Async[Semaphore] = 
+    scala.Predef.assert(n >= 1)
 
-class Semaphore private (val capacity: Int):
-  def acquire: Async[Unit] = ???
+    for 
+      ref <- Ref.make[Either[Int, List[Signal]]](Left(n))
+    yield Semaphore(ref)
 
-  def release: Async[Unit] = ???
+class Semaphore private (state: Ref[Either[Int, List[Signal]]]):
+  def acquire: Async[Unit] = 
+    def modifyState(signal: Signal): Async[Async[Unit]] = 
+      state.modify:
+        case Left(1) => (signal.trigger, Right(Nil))
+        case Left(n) => (signal.trigger, Left(n - 1))
+        case Right(signals) => (Async.succeed(()), Right(signal :: signals))
+
+    for
+      signal <- Signal.make
+      async  <- modifyState(signal)
+      _      <- async
+      _      <- signal.await 
+    yield ()
+
+  def release: Async[Unit] = 
+    val modifyState: Async[Async[Unit]] = 
+      state.modify[Async[Unit]]:
+        case Left(n) => (Async.succeed(()), Left(n + 1))
+        case Right(Nil) => (Async.succeed(()), Left(1))
+        case Right(signal :: signals) => (signal.trigger, Right(signals))
+
+    for 
+      async <- modifyState 
+      _     <- async 
+    yield ()
 
 object SemaphoreSpec extends ZIOSpecDefault:
   def spec =
