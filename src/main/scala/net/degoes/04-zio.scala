@@ -472,25 +472,23 @@ object ZIOResourceSpec extends ZIOSpecDefault:
       test("ZIO#ensuring") {
         @volatile var count = 0
 
-        val incrementCounter = ZIO.succeed(count += 1)         
+        val incrementCounter = ZIO.succeed(count += 1)
 
-        import Console.printLine
-
-        val left = 
-          ZIO.succeed(42).ensuring(printLine("Finalizing 1").orDie)
-
-        val right = 
-          ZIO.succeed(24).ensuring(printLine("Finalizing 2").orDie)
-
-        val finalizer = left.race(right).ensuring(Console.printLine("Race done").orDie)
-
-        val child = 
-          printLine("Hi from thread").ensuring(finalizer)
+        def raceStart[R, E, A](left: ZIO[R, E, A], right: ZIO[R, E, A]): ZIO[R, E, A] = 
+          for 
+            latch1 <- Promise.make[Nothing, Unit]
+            latch2 <- Promise.make[Nothing, Unit]
+            left2  = latch1.succeed(()) *> latch2.await *> left
+            right2 = latch1.await *> latch2.succeed(()) *> right 
+            a <- left2.race(right2)
+          yield a
 
         for 
-          fiber <- child.fork
-        yield () 
-        
+          latch <- Promise.make[Nothing, Unit]
+          fiber <- (latch.succeed(()) *> Console.printLine("Hi from thread").ensuring(Console.printLine("Finalized").ignore)).fork
+          _     <- latch.await 
+          _     <- fiber.interrupt 
+        yield ()        
 
         /** EXERCISE 33
           *
@@ -514,7 +512,9 @@ object ZIOResourceSpec extends ZIOSpecDefault:
           * what.
           */
         lazy val onExit: ZIO[Any, String, Int] =
-          ZIO.fail("Uh oh!")
+          ZIO.fail("Uh oh!").onExit { exit =>
+            incrementCounter *> ZIO.debug(exit).when(exit.isFailure)
+          }
 
         for error <- onExit.flip
         yield assertTrue(count == 1 && error == "Uh oh!")
@@ -531,8 +531,7 @@ object ZIOResourceSpec extends ZIOSpecDefault:
           *
           * This will introduce a `Scope` dependency in your effect, which you should eliminate using `ZIO.scoped`.
           */
-
-        (for
+        ZIO.scoped(for          
           _     <- ZIO.addFinalizer(incrementCounter)
           error <- ZIO.fail("Uh oh!").flip
         yield error).flatMap(error => assertTrue(count == 1 && error == "Uh oh!"))

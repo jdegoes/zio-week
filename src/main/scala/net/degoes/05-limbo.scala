@@ -12,16 +12,18 @@ import zio.test.TestAspect.ignore
 
 import java.sql.SQLException
 
+final case class Response(code: Int, body: String, headers: Map[String, String])
+
+final case class HttpException(code: Int, message: String) extends Exception(message):
+  def toResponse: Response = Response(code, message, Map("Content-Type" -> "text/plain"))
+
+case class InsufficientFunds() extends Exception
+
+
 object ZIOLimboSpec extends ZIOSpecDefault:
   def spec =
     suite("ZIOLimboSpec")(
       test("unrecoverable") {
-        final case class Response(code: Int, body: String, headers: Map[String, String])
-
-        final case class HttpException(code: Int, message: String) extends Exception(message)
-
-        case class InsufficientFunds()
-
         val makeCharge: ZIO[Any, InsufficientFunds, Unit] = ZIO.unit
 
         val recordInDatabase: ZIO[Any, SQLException, Unit] =
@@ -34,20 +36,16 @@ object ZIOLimboSpec extends ZIOSpecDefault:
           * (InsufficientFunds).
           */
         def chargeUser: ZIO[Any, InsufficientFunds | SQLException, Unit] =
-          for
+          (for
             _ <- makeCharge
             _ <- recordInDatabase
-          yield ()
+          yield ()).refineOrDie:
+            case e : InsufficientFunds => e 
 
         for result <- chargeUser.sandbox.flip
         yield assertTrue(result.defects.head.isInstanceOf[SQLException])
       } @@ ignore,
-      test("looking for trouble") {
-        final case class Response(code: Int, body: String, headers: Map[String, String])
-
-        final case class HttpException(code: Int, message: String) extends Exception(message):
-          def toResponse: Response = Response(code, message, Map("Content-Type" -> "text/plain"))
-
+      test("looking for trouble") {        
         /** EXERCISE 2
           *
           * Implement the `look` function so that it returns a new effect that that will succeed with a valid response
@@ -55,7 +53,9 @@ object ZIOLimboSpec extends ZIOSpecDefault:
           * should fail with `None`.
           */
         def look(effect: ZIO[Any, Throwable, Response]): ZIO[Any, Option[Nothing], Response] =
-          ???
+          (effect.mapError: 
+            case e @ HttpException(404, _) => Some(e.toResponse)
+            case _ => None).flip.orElse(ZIO.none.flip).some.mapError(_.flatten)
 
         for
           success <- look(ZIO.fail(HttpException(404, "Not Found")))
@@ -66,11 +66,16 @@ object ZIOLimboSpec extends ZIOSpecDefault:
 
         /** EXERCISE 3
           *
-          * Using `ZIO#fork` and `ZIO#join`, implement a function that takes two effects, and returns an effect that
+          * Using `ZIO#fork` and `Fiber#join`, implement a function that takes two effects, and returns an effect that
           * concurrently executes both left and right effects, succeeding with a tuple of their results.
           */
         def zipPar[R, E, A](left: ZIO[R, E, A], right: ZIO[R, E, A]): ZIO[R, E, (A, A)] =
-          ???
+          for 
+            promise    <- Promise.make[E, A]
+            rightFiber <- right.intoPromise(promise).fork 
+            leftA      <- left
+            rightA     <- promise.await
+          yield (leftA, rightA)
 
         for result <- zipPar(ZIO.succeed(42), ZIO.succeed(42))
         yield assertTrue(result == (42, 42))
@@ -84,12 +89,21 @@ object ZIOLimboSpec extends ZIOSpecDefault:
           *
           * If you know about zio.Schedule, you may NOT cheat and use it!
           */
-        def autoretry[R, E, A](effect: ZIO[R, E, A]): ZIO[R, E, A] =
-          ???
+        def autoretry[R, E, A](effect: ZIO[R, E, A], maxRetries: Int = 10): ZIO[R, E, A] =          
+          effect.exit.flatMap { exit =>
+            if exit.isFailure then 
+              val retried = 
+                ZIO.iterate[R, Nothing, (Int, Exit[E, A])]((1, exit))(t => t._1 < maxRetries && t._2.isFailure):
+                  case (iterations, exit) => 
+                    ZIO.sleep(Math.pow(2, iterations).toInt.millis) *> effect.exit.map(exit => (iterations + 1, exit))
+
+              retried.map(_._2).flatten
+            else exit            
+          }
 
         for result <- autoretry(ZIO.fail(new Error("Uh oh!"))).flip
         yield assertTrue(result.isInstanceOf[Error])
-      } @@ ignore,
+      } @@ ignore @@ TestAspect.withLiveClock,
       test("effect, interrupted") {
 
         /** EXERCISE 5
@@ -98,11 +112,7 @@ object ZIOLimboSpec extends ZIOSpecDefault:
           * the issue so that the ref is updated even if the effect is interrupted.
           */
         def makeEffect(promise: Promise[Nothing, Unit], ref: Ref[Int]) =
-          for
-            _ <- promise.succeed(())
-            _ <- ZIO.sleep(10.millis)
-            _ <- ref.update(_ + 1)
-          yield ()
+          promise.succeed(()).delay(10.millis).ensuring(ref.update(_ + 1))
 
         for
           promise <- Promise.make[Nothing, Unit]
@@ -112,7 +122,7 @@ object ZIOLimboSpec extends ZIOSpecDefault:
           _       <- fiber.interrupt
           result  <- ref.get
         yield assertTrue(result == 1)
-      } @@ ignore,
+      } @@ ignore @@ TestAspect.withLiveClock,
       test("flawless handoff") {
         def doWork(i: Int): ZIO[Any, Exception, Int] = ZIO.succeed(i)
 
@@ -124,20 +134,36 @@ object ZIOLimboSpec extends ZIOSpecDefault:
           *
           * Note that the test does NOT check for correct implementation.
           */
-        def startWorker(queue: Queue[Int]): ZIO[Any, Nothing, Fiber[Exception, Nothing]] =
-          (for
-            item <- queue.take
-            _    <- doWork(item)
-          yield ()).forever.fork
+        def startWorker(queue: Queue[Int]): ZIO[Any, Nothing, Fiber[Nothing, Nothing]] =
+          ZIO.uninterruptibleMask { restore =>
+            restore(queue.take).flatMap(item => doWork(item).orElse(queue.offer(item)))
+          }.forever.fork
 
         for
           queue  <- Queue.bounded[Int](100)
-          _      <- Random.nextInt.flatMap(queue.offer(_)).repeatN(100)
+          _      <- Random.nextInt.flatMap(queue.offer(_)).repeatN(99)
           fibers <- ZIO.foreach(1 to 10)(_ => startWorker(queue))
-          fiber  <- Fiber.joinAll(fibers)
+          fiber  <- Fiber.collectAll(fibers).interrupt
         yield assertCompletes
       } @@ ignore,
       test("flawless test of flawless handoff") {
+        def doWork(i: Int, processed: Ref[Set[Int]]): ZIO[Any, Exception, Unit] = 
+          zio.Random.nextDouble.flatMap: 
+            case x if x < 0.9 => processed.update(_ + i)
+            case _ => ZIO.fail(new Exception(s"Failed to process $i"))
+
+        def startWorker(queue: Queue[Int], processed: Ref[Set[Int]]): ZIO[Any, Nothing, Fiber[Nothing, Nothing]] =
+          ZIO.uninterruptibleMask { restore =>
+            restore(queue.take).flatMap(item => doWork(item, processed).orElse(queue.offer(item)))
+          }.forever.fork
+
+        def trialRun(queue: Queue[Int], processed: Ref[Set[Int]]) = 
+          for 
+            fibers <- ZIO.foreach(0 to 10)(_ => startWorker(queue, processed))
+            fiber  <- ZIO.foreach(fibers)(_.interrupt)
+            size   <- processed.get.map(_.size)
+          yield size
+
 
         /** EXERCISE 7
           *
@@ -146,6 +172,11 @@ object ZIOLimboSpec extends ZIOSpecDefault:
           *
           * You will have to make some changes to `doWork` and `startWorker`.
           */
-        assertTrue(false)
-      } @@ ignore,
+        for
+          ref    <- Ref.make(Set.empty[Int])
+          queue  <- Queue.bounded[Int](100)
+          _      <- ZIO.foreach(0 to 1000)(queue.offer(_)).fork
+          _      <- trialRun(queue, ref).repeatUntil(_ >= 1000)
+        yield assertCompletes
+      } @@ TestAspect.withLiveRandom
     )
