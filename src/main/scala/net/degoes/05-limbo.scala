@@ -160,6 +160,7 @@ object ZIOLimboSpec extends ZIOSpecDefault:
         def trialRun(queue: Queue[Int], processed: Ref[Set[Int]]) = 
           for 
             fibers <- ZIO.foreach(0 to 10)(_ => startWorker(queue, processed))
+            _      <- ZIO.sleep(1.millis)
             fiber  <- ZIO.foreach(fibers)(_.interrupt)
             size   <- processed.get.map(_.size)
           yield size
@@ -178,5 +179,5 @@ object ZIOLimboSpec extends ZIOSpecDefault:
           _      <- ZIO.foreach(0 to 1000)(queue.offer(_)).fork
           _      <- trialRun(queue, ref).repeatUntil(_ >= 1000)
         yield assertCompletes
-      } @@ TestAspect.withLiveRandom
+      } @@ TestAspect.withLiveRandom @@ TestAspect.withLiveClock
     )
