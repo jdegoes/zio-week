@@ -31,11 +31,11 @@ object Types:
 
   /** EXERCISE 1
     *
-    * Make the type for an effect that requries a `Request`, fails with a `StatusCode`, and succeeds with a `Response`.
+    * Make the type for an effect that requires a `Request`, fails with a `StatusCode`, and succeeds with a `Response`.
     */
-  type RequestHandler = ???
+  type RequestHandler = ZIO[Request, StatusCode, Response]
 
-  type SparkContext
+  trait SparkContext
   type Dataset[A]
 
   /** EXERCISE 2
@@ -54,7 +54,7 @@ object IntroSpec extends ZIOSpecDefault:
           *
           * Using `ZIO.succeed`, construct an effect that succeeds with the value 42.
           */
-        lazy val effect: ZIO[Any, Nothing, Int] = ???
+        lazy val effect: ZIO[Any, Nothing, Int] = ZIO.succeed(42)
 
         for success <- effect
         yield assertTrue(success == 42)
@@ -65,7 +65,7 @@ object IntroSpec extends ZIOSpecDefault:
           *
           * Using `ZIO.fail`, construct an effect that fails with the value "Uh oh".
           */
-        lazy val effect: ZIO[Any, String, Nothing] = ???
+        lazy val effect: ZIO[Any, String, Nothing] = ZIO.fail("Uh oh")
 
         for error <- effect.flip
         yield assertTrue(error == "Uh oh")
@@ -76,7 +76,7 @@ object IntroSpec extends ZIOSpecDefault:
           *
           * Using `ZIO.attempt`, construct an effect that succeeds with the value 42.
           */
-        lazy val effect: ZIO[Any, Throwable, Int] = ???
+        lazy val effect: ZIO[Any, Throwable, Int] = ZIO.attempt(42)
 
         for success <- effect
         yield assertTrue(success == 42)
@@ -87,7 +87,7 @@ object IntroSpec extends ZIOSpecDefault:
           *
           * Using `ZIO.attempt`, construct an effect from throwing an exception with the message "Uh oh".
           */
-        lazy val effect: ZIO[Any, Throwable, Nothing] = ???
+        lazy val effect: ZIO[Any, Throwable, Nothing] = ZIO.attempt(throw new Exception("Uh oh"))
 
         for error <- effect.flip
         yield assertTrue(error.getMessage == "Uh oh")
@@ -99,7 +99,7 @@ object IntroSpec extends ZIOSpecDefault:
           *
           * Using `ZIO#map`, transform the effect to add 1 to the value.
           */
-        lazy val mapped: ZIO[Any, Nothing, Int] = ???
+        lazy val mapped: ZIO[Any, Nothing, Int] = effect.map(_ + 1)
 
         for result <- mapped
         yield assertTrue(result == 43)
@@ -111,7 +111,7 @@ object IntroSpec extends ZIOSpecDefault:
           *
           * Using `ZIO#mapError`, transform the effect to get the length of the error message.
           */
-        lazy val mapped: ZIO[Any, Int, Nothing] = ???
+        lazy val mapped: ZIO[Any, Int, Nothing] = effect.mapError(_.length)
 
         for error <- mapped.flip
         yield assertTrue(error == 5)
@@ -123,7 +123,11 @@ object IntroSpec extends ZIOSpecDefault:
           *
           * Using `ZIO#flatMap`, transform the effect to add 1 to the value.
           */
-        lazy val flatMapped: ZIO[Any, Nothing, Int] = ???
+        lazy val flatMapped: ZIO[Any, Nothing, Int] = 
+          for 
+            value <- effect 
+            result <- ZIO.succeed(value + 1)
+          yield result
 
         for result <- flatMapped
         yield assertTrue(result == 43)
@@ -135,7 +139,8 @@ object IntroSpec extends ZIOSpecDefault:
           *
           * Using `ZIO#catchAll`, transform the effect to get the length of the error message.
           */
-        lazy val caught: ZIO[Any, Nothing, Int] = ???
+        lazy val caught: ZIO[Any, Nothing, Int] = 
+          effect.catchAll(error => ZIO.succeed(error.length))
 
         for len <- caught
         yield assertTrue(len == 5)
@@ -150,7 +155,8 @@ object IntroSpec extends ZIOSpecDefault:
           *
           * Using `ZIO.(*>)`, combine the `increment` and `decrement` effects to increment twice and decrement once.
           */
-        lazy val incIncDec: ZIO[Any, Nothing, Int] = ???
+        lazy val incIncDec: ZIO[Any, Nothing, Int] = 
+          increment <* ZIO.logInfo("Incremented") *> increment *> decrement
 
         for result <- incIncDec
         yield assertTrue(result == 1)
@@ -163,7 +169,7 @@ object IntroSpec extends ZIOSpecDefault:
           *
           * Using `ZIO#zip`, combine the `first` and `second` effects to produce a tuple of their results.
           */
-        lazy val zipped: ZIO[Any, Nothing, (Int, String)] = ???
+        lazy val zipped: ZIO[Any, Nothing, (Int, String)] = first.zipPar(second)
 
         for result <- zipped
         yield assertTrue(result == (42, "foo"))
@@ -180,7 +186,8 @@ object IntroSpec extends ZIOSpecDefault:
           *
           * Using `ZIO.foreach`, transform the list of URLs into a list of responses.
           */
-        lazy val responses: ZIO[Any, Nothing, List[Response]] = ???
+        lazy val responses: ZIO[Any, Nothing, List[Response]] = 
+          ZIO.foreachPar(urls)(doRequest)
 
         for result <- responses
         yield assertTrue(
@@ -203,10 +210,13 @@ object IntroSpec extends ZIOSpecDefault:
           * worry about the specifics of providing the effect its required context, as that is done for you, and will be
           * explored in more detail later.
           */
-        (for
-          logger <- ??? : ZIO[Logger, Nothing, Logger]
-          _      <- logger.log("Hello, world!")
-        yield assertTrue(true)).provide(ZLayer.succeed(Logger))
+        val effect = 
+          for
+            logger <- ZIO.service[Logger]
+            _      <- logger.log("Hello, world!")
+          yield assertTrue(true)
+          
+        effect.provide(ZLayer.succeed(Logger))
       },
     )
 
@@ -220,7 +230,8 @@ object ZIOConcurrencySpec extends ZIOSpecDefault:
             *
             * Using `ZIO#race`, race two effects, such that the winner ends up succeeding with a value of 42.
             */
-          lazy val effect: ZIO[Any, Any, Int] = ???
+          lazy val effect: ZIO[Any, Any, Int] = 
+            ZIO.fail("24").race(ZIO.succeed(42))
 
           for result <- effect
           yield assertTrue(result == 42)
@@ -234,7 +245,8 @@ object ZIOConcurrencySpec extends ZIOSpecDefault:
             *
             * You can use `ZIO.sleep` to sleep for a specified duration.
             */
-          lazy val effect: ZIO[Any, Any, Option[Int]] = ???
+          lazy val effect: ZIO[Any, Any, Option[Int]] = 
+            ZIO.sleep(1.second).as(42).timeout(500.millis)
 
           for result <- effect
           yield assertTrue(result == None)
@@ -248,7 +260,8 @@ object ZIOConcurrencySpec extends ZIOSpecDefault:
             * Using `ZIO#zipPar`, combine the `first` and `second` effects to produce a tuple of their results, where
             * execution of the individual effects occurs concurrently (in "PARallel").
             */
-          lazy val zipped: ZIO[Any, Nothing, (Int, String)] = ???
+          lazy val zipped: ZIO[Any, Nothing, (Int, String)] = 
+            first.zipPar(second)
 
           for result <- zipped
           yield assertTrue(result == (42, "foo"))
@@ -266,7 +279,8 @@ object ZIOConcurrencySpec extends ZIOSpecDefault:
             * Using `ZIO.foreachPar`, transform the list of URLs into a list of responses, where the requests are made
             * concurrently.
             */
-          lazy val responses: ZIO[Any, Nothing, List[Response]] = ???
+          lazy val responses: ZIO[Any, Nothing, List[Response]] = 
+            ZIO.foreachPar(urls)(doRequest)
 
           for result <- responses
           yield assertTrue(
@@ -285,7 +299,7 @@ object ZIOConcurrencySpec extends ZIOSpecDefault:
             *
             * Using `Ref.make`, create a new `Ref` that is initialized to 0.
             */
-          for ref <- ??? : ZIO[Any, Nothing, Ref[Int]]
+          for ref <- Ref.make(0)
           yield assertTrue(ref != null)
         } @@ ignore,
         test("Ref#get") {
@@ -296,7 +310,7 @@ object ZIOConcurrencySpec extends ZIOSpecDefault:
             */
           for
             ref   <- Ref.make(42)
-            value <- ??? : ZIO[Any, Nothing, Int]
+            value <- ref.get
           yield assertTrue(value == 42)
         } @@ ignore,
         test("Ref#set") {
@@ -307,7 +321,7 @@ object ZIOConcurrencySpec extends ZIOSpecDefault:
             */
           for
             ref   <- Ref.make(0)
-            _     <- ??? : ZIO[Any, Nothing, Unit]
+            _     <- ref.set(42)
             value <- ref.get
           yield assertTrue(value == 42)
         } @@ ignore,
@@ -319,7 +333,7 @@ object ZIOConcurrencySpec extends ZIOSpecDefault:
             */
           for
             ref   <- Ref.make(0)
-            _     <- ??? : ZIO[Any, Nothing, Unit]
+            _     <- ref.update(_ + 1)
             value <- ref.get
           yield assertTrue(value == 1)
         } @@ ignore,
@@ -331,7 +345,7 @@ object ZIOConcurrencySpec extends ZIOSpecDefault:
             */
           for
             ref   <- Ref.make(0)
-            old   <- ??? : ZIO[Any, Nothing, Int]
+            old   <- ref.getAndUpdate(_ + 1)//modify(old => (old, old + 1))
             value <- ref.get
           yield assertTrue(old == 0) && assertTrue(value == 1)
         } @@ ignore,
@@ -343,7 +357,7 @@ object ZIOConcurrencySpec extends ZIOSpecDefault:
             *
             * Using `Promise.make`, create a new promise that can be used to produce an integer value.
             */
-          for promise <- ??? : ZIO[Any, Nothing, Promise[Nothing, Int]]
+          for promise <- Promise.make[Nothing, Int]
           yield assertTrue(promise != null)
         } @@ ignore,
         test("Promise#succeed") {
@@ -354,7 +368,7 @@ object ZIOConcurrencySpec extends ZIOSpecDefault:
             */
           for
             promise <- Promise.make[Nothing, Int]
-            _       <- ??? : ZIO[Any, Nothing, Unit]
+            _       <- promise.succeed(42)
             value   <- promise.await
           yield assertTrue(value == 42)
         } @@ ignore,
@@ -366,7 +380,7 @@ object ZIOConcurrencySpec extends ZIOSpecDefault:
             */
           for
             promise <- Promise.make[String, Int]
-            _       <- ??? : ZIO[Any, Nothing, Unit]
+            _       <- promise.fail("Uh oh")
             error   <- promise.await.flip
           yield assertTrue(error == "Uh oh")
         } @@ ignore,
@@ -378,8 +392,8 @@ object ZIOConcurrencySpec extends ZIOSpecDefault:
             */
           for
             promise <- Promise.make[String, Int]
-            _       <- (ZIO.sleep(10.millis) *> promise.succeed(42)).fork
-            value   <- ??? : ZIO[Any, Nothing, Int]
+            fiber   <- (ZIO.sleep(10.millis) *> promise.succeed(42)).fork
+            value   <- promise.await
           yield assertTrue(value == 42)
         } @@ ignore,
       ),
@@ -390,7 +404,7 @@ object ZIOConcurrencySpec extends ZIOSpecDefault:
             *
             * Using `Queue.bounded`, create a new bounded queue that can hold up to 100 integers.
             */
-          for queue <- ??? : ZIO[Any, Nothing, Queue[Int]]
+          for queue <- Queue.bounded(100)
           yield assertTrue(queue != null)
         } @@ ignore,
         test("Queue#offer") {
@@ -401,7 +415,7 @@ object ZIOConcurrencySpec extends ZIOSpecDefault:
             */
           for
             queue <- Queue.bounded[Int](100)
-            _     <- ??? : ZIO[Any, Nothing, Unit]
+            _     <- queue.offer(42)
           yield assertTrue(true)
         } @@ ignore,
         test("Queue#take") {
@@ -413,7 +427,7 @@ object ZIOConcurrencySpec extends ZIOSpecDefault:
           for
             queue <- Queue.bounded[Int](100)
             _     <- queue.offer(42)
-            value <- ??? : ZIO[Any, Nothing, Int]
+            value <- queue.take
           yield assertTrue(value == 42)
         } @@ ignore,
         test("Queue#shutdown") {
@@ -423,12 +437,13 @@ object ZIOConcurrencySpec extends ZIOSpecDefault:
             * Using `Queue#shutdown`, shutdown the specified queue.
             */
           for
-            queue <- Queue.bounded[Int](100)
-            _     <- ??? : ZIO[Any, Nothing, Unit]
-          yield assertTrue(true)
+            queue    <- Queue.bounded[Int](100)
+            _        <- queue.shutdown
+            shutdown <- queue.isShutdown
+          yield assertTrue(shutdown)
         } @@ ignore,
       ),
-    )
+    ) @@ TestAspect.withLiveClock
 
 object ZIOResourceSpec extends ZIOSpecDefault:
   def spec =
@@ -446,8 +461,10 @@ object ZIOResourceSpec extends ZIOSpecDefault:
           *
           * Using `ZIO.acquireReleaseWith`, acquire a resource, use it, and then release it.
           */
-        lazy val bracketed: ZIO[Any, Nothing, Int] =
-          ???
+        lazy val bracketed: ZIO[Any, Any, Unit] =
+          ZIO.acquireReleaseWith(acquire)(release) { file =>        
+            Console.printLine(s"Using $file")
+          }
 
         for result <- bracketed
         yield assertTrue(count == 0)
@@ -455,7 +472,25 @@ object ZIOResourceSpec extends ZIOSpecDefault:
       test("ZIO#ensuring") {
         @volatile var count = 0
 
-        val incrementCounter = ZIO.succeed(count += 1)
+        val incrementCounter = ZIO.succeed(count += 1)         
+
+        import Console.printLine
+
+        val left = 
+          ZIO.succeed(42).ensuring(printLine("Finalizing 1").orDie)
+
+        val right = 
+          ZIO.succeed(24).ensuring(printLine("Finalizing 2").orDie)
+
+        val finalizer = left.race(right).ensuring(Console.printLine("Race done").orDie)
+
+        val child = 
+          printLine("Hi from thread").ensuring(finalizer)
+
+        for 
+          fiber <- child.fork
+        yield () 
+        
 
         /** EXERCISE 33
           *
@@ -463,7 +498,7 @@ object ZIOResourceSpec extends ZIOSpecDefault:
           * matter what.
           */
         lazy val ensuring: ZIO[Any, String, Int] =
-          ZIO.fail("Uh oh!")
+          ZIO.fail("Uh oh!").ensuring(incrementCounter)
 
         for error <- ensuring.flip
         yield assertTrue(count == 1 && error == "Uh oh!")
