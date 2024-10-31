@@ -10,6 +10,7 @@ package net.degoes.config
 import zio._
 import zio.test._
 import zio.test.TestAspect._
+import zio.config.magnolia.examples.C
 
 object ConfigSpec extends ZIOSpecDefault:
   def spec = suite("ConfigSpec")(
@@ -19,7 +20,7 @@ object ConfigSpec extends ZIOSpecDefault:
         *
         * Create a `Config[Int]` that reads an integer from the configuration using the key name "port".
         */
-      lazy val config: Config[Int] = ???
+      lazy val config: Config[Int] = Config.int("port")
 
       val provider = ConfigProvider.fromMap(Map("port" -> "8080"))
 
@@ -33,15 +34,25 @@ object ConfigSpec extends ZIOSpecDefault:
         *
         * Create a `Config[ServerConfig]` that reads a `ServerConfig` from the configuration.
         */
-      lazy val port: Config[Int]    = ???
-      lazy val host: Config[String] = ???
+      lazy val port: Config[Int]    = Config.int("port")
+      lazy val host: Config[String] = Config.string("host")
 
-      lazy val config: Config[ServerConfig] =
-        ???
+      implicit lazy val config: Config[ServerConfig] =
+        (port ++ host).map: 
+          case (port, host) => ServerConfig(port, host)
+
+      case class Age(value: Int)
+
+      def age(name: String): Config[Age] =
+        Config.int(name).mapAttempt {
+          case x if x >= 0 && x <= 100 => Age(x)
+        }
 
       val provider = ConfigProvider.fromMap(Map("port" -> "8080", "host" -> "localhost"))
 
-      for value <- provider.load(config)
+      for 
+        value        <- provider.load(config)
+        serverConfig <- ZIO.config[ServerConfig]
       yield assertTrue(value == ServerConfig(8080, "localhost"))
     } @@ ignore,
     test("from layer") {
@@ -62,7 +73,7 @@ object ConfigSpec extends ZIOSpecDefault:
         */
       lazy val layer = Runtime.setConfigProvider(provider)
 
-      for value <- ZIO.config[ServerConfig]
-      yield assertTrue(value == ServerConfig(8080, "localhost"))
+      (for value <- ZIO.config[ServerConfig]
+      yield assertTrue(value == ServerConfig(8080, "localhost"))).provide(Runtime.setConfigProvider(provider))
     } @@ ignore,
   )

@@ -13,20 +13,42 @@ import zio.schema.annotation.description
 
 import scala.util.Try
 
-object HelloWorldAdvanced extends ZIOAppDefault {
+import net.degoes.di._ 
+
+final case class TodoHttpApp(todoRepo: TodoRepo): 
+  import PathCodec.string
+
+  private def listTodos(request: Request) = Response()
+
+  private def addTodo(request: Request) = Response()
+
+  private def getTodo(id: String, request: Request) = Response()
+
+  private def updateTodo(id: String, request: Request) = Response()
+
+  private def deleteTodo(id: String, request: Request) = Response()
+
+  val routes = Routes(
+    Method.GET    / ""            -> handler(listTodos),
+    Method.POST   / ""            -> handler(addTodo),
+    Method.GET    / string("id")  -> handler(getTodo),
+    Method.PUT    / string("id")  -> handler(updateTodo),
+    Method.DELETE / string("id")  -> handler(deleteTodo),
+  ).nest("todos")
+
+object TodoHttpApp:
+  val layer = 
+    ZLayer:
+      for 
+        server   <- ZIO.service[Server]
+        todoRepo <- ZIO.service[TodoRepo]
+        httpApp   = TodoHttpApp(todoRepo)
+        _        <- server.install(httpApp.routes)
+      yield ()
+
+object TodoAppHttpMain extends ZIOAppDefault {
   // Set a port
   val PORT = 58080
-
-  val fooBar =
-    Routes(
-      Method.GET / "foo" -> Handler.from(Response.text("bar")),
-      Method.GET / "bar" -> Handler.from(Response.text("foo")),
-    )
-
-  val app = Routes(
-    Method.GET / "random" -> handler(Random.nextString(10).map(Response.text(_))),
-    Method.GET / "utc"    -> handler(Clock.currentDateTime.map(s => Response.text(s.toString))),
-  )
 
   val run = ZIOAppArgs.getArgs.flatMap { args =>
     // Configure thread count using CLI
@@ -43,9 +65,12 @@ object HelloWorldAdvanced extends ZIOAppDefault {
     val configLayer      = ZLayer.succeed(config)
     val nettyConfigLayer = ZLayer.succeed(nettyConfig)
 
-    (fooBar ++ app)
-      .serve[Any]
-      .provide(configLayer, nettyConfigLayer, Server.customized)
+    ZIO.never.provide(
+      TodoRepo.testLayer, 
+      TodoHttpApp.layer, 
+      configLayer, 
+      nettyConfigLayer, 
+      Server.customized)
   }
 }
 
@@ -70,7 +95,7 @@ object BooksEndpointExample extends ZIOAppDefault {
       else List.empty
   }
 
-  val endpoint =
+  val listBooks =
     Endpoint((RoutePattern.GET / "books") ?? Doc.p("Route for querying books"))
       .query(
         HttpCodec.query[String]("q").examples(("example1", "scala"), ("example2", "zio")) ?? Doc.p(
@@ -81,8 +106,13 @@ object BooksEndpointExample extends ZIOAppDefault {
       "Endpoint to query books based on a search query"
     )
 
-  val booksRoute    = endpoint.implementHandler(handler((query: String) => BookRepo.find(query)))
-  val openAPI       = OpenAPIGen.fromEndpoints(title = "Library API", version = "1.0", endpoint)
+  def example(exec: EndpointExecutor[Any, AuthType.None.type]) = 
+    for 
+      result <- exec(listBooks("scala"))
+    yield () 
+
+  val booksRoute    = listBooks.implementHandler(handler((query: String) => BookRepo.find(query)))
+  val openAPI       = OpenAPIGen.fromEndpoints(title = "Library API", version = "1.0", listBooks)
   val swaggerRoutes = SwaggerUI.routes("docs" / "openapi", openAPI)
   val routes        = Routes(booksRoute) ++ swaggerRoutes
 
