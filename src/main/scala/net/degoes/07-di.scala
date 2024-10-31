@@ -141,7 +141,7 @@ object EmailService:
       yield TestEmailService(ref)
     }
 
-class TodoApp(todoRepo: TodoRepo, todoConfig: TodoConfig, emailService: EmailService):
+case class TodoApp(todoRepo: TodoRepo, todoConfig: TodoConfig, emailService: EmailService):
   val testUser = User("jdegoes", "John De Goes", "john@degoes.net")
 
   enum Choice:
@@ -227,9 +227,7 @@ object TodoApp:
     * Create a layer that assembles a `TodoApp` given a `TodoRepo`, `TodoConfig`, and `EmailService`.
     */
   lazy val layer: ZLayer[TodoRepo & TodoConfig & EmailService, Nothing, TodoApp] =
-    ZLayer {
-      ???
-    }
+    ZLayer.fromFunction(TodoApp.apply)
 
 object TodoAppMain extends ZIOAppDefault:
   /** EXERCISE 6
@@ -238,4 +236,7 @@ object TodoAppMain extends ZIOAppDefault:
     * dependencies.
     */
   val run =
-    ???
+    (for 
+      todoApp <- ZIO.service[TodoApp]
+      _       <- todoApp.run
+    yield ()).provide(TodoApp.layer, TodoRepo.testLayer, TodoConfig.defaultLayer, EmailService.testLayer)
