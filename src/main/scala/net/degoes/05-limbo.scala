@@ -177,6 +177,7 @@ object ZIOLimboSpec extends ZIOSpecDefault:
           ref    <- Ref.make(Set.empty[Int])
           queue  <- Queue.bounded[Int](100)
           _      <- ZIO.foreach(0 to 1000)(queue.offer(_)).fork
+          _      <- (ZIO.sleep(5.seconds) *> ref.get.flatMap(ZIO.debug(_))).forever.fork
           _      <- trialRun(queue, ref).repeatUntil(_ >= 1000)
         yield assertCompletes
       } @@ TestAspect.withLiveRandom @@ TestAspect.withLiveClock

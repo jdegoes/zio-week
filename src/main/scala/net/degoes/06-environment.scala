@@ -48,7 +48,7 @@ object ZEnvSpec extends ZIOSpecDefault:
           *
           * Try to get `Blue`. What happens?
           */
-        assertTrue(??? == Red())
+        assertTrue(all.get[Red] == Red())
       } @@ ignore,
       test("add from empty") {
         val empty = ZEnvironment.empty
@@ -57,7 +57,7 @@ object ZEnvSpec extends ZIOSpecDefault:
           *
           * Starting from empty, add `Red()` to the environment using the `ZEnvironment#add` method.
           */
-        lazy val env: ZEnvironment[Red] = ???
+        lazy val env: ZEnvironment[Red] = empty.add(Red())
 
         assertTrue(env.get[Red] == Red())
       } @@ ignore,
@@ -70,12 +70,12 @@ object ZEnvSpec extends ZIOSpecDefault:
           * Union the `redAndBlue` and `green` environments together to create an environment that contains all three
           * colors, using the `ZEnvironment#(++)` (union) method.
           */
-        lazy val all: ZEnvironment[Red & Green & Blue] = ???
+        lazy val all: ZEnvironment[Red & Green & Blue] = redAndBlue ++ green
 
         assertTrue(all.get[Red] == Red() && all.get[Green] == Green() && all.get[Blue] == Blue())
       } @@ ignore,
       test("ZIO#provideEnvironment") {
-        val green = ZEnvironment.empty.add(Green())
+        val zenv = ZEnvironment(Green(), Blue(), Red())
 
         val effect: ZIO[Green, IOException, Green] =
           ZIO.serviceWithZIO[Green](green => Console.printLine(green).as(green))
@@ -85,7 +85,7 @@ object ZEnvSpec extends ZIOSpecDefault:
           * Using `ZIO#provideEnvironment`, provide the `green` environment to this effect that requires a `Green`
           * value.
           */
-        for green <- ??? : ZIO[Any, IOException, Green]
+        for green <- effect.provideEnvironment(zenv)
         yield assertTrue(green == Green())
       },
     )
@@ -102,13 +102,30 @@ object ZEnvSpec extends ZIOSpecDefault:
   * are no longer being used. In addition, the construction may happen asynchronously and concurrently.
   */
 object ZLayerSpec extends ZIOSpecDefault:
-  trait Printer
-  object Printer extends Printer
+  trait Printer:
+    def print(str: String): ZIO[Any, Nothing, Unit]
 
-  final case class Logger(printer: Printer)
+  object Printer extends Printer:
+    override def print(str: String): ZIO[Any, Nothing, Unit] = ZIO.debug(str)
+
+  final case class Logger(printer: Printer):
+    def log(line: String): ZIO[Any, Nothing, Unit] = printer.print(line)
 
   trait Config
   object Config extends Config
+
+  trait Jdbc
+  trait Metrics
+
+  class UserRepo(jdbc: Jdbc, userConfig: Config, metrics: Metrics)
+  object UserRepo:
+    val layer = 
+      ZLayer:
+        for 
+          jdbc    <- ZIO.service[Jdbc]
+          cfg     <- ZIO.service[Config] 
+          metrics <- ZIO.service[Metrics]
+        yield UserRepo(jdbc, cfg, metrics)
 
   def spec =
     suite("ZLayerSpec")(
@@ -118,7 +135,8 @@ object ZLayerSpec extends ZIOSpecDefault:
           *
           * Using `ZLayer.succeed`, construct a layer that produces a ZEnvironment containing just a `Printer`.
           */
-        lazy val layer: ZLayer[Any, Nothing, Printer] = ???
+        lazy val layer: ZLayer[Any, Nothing, Printer] = 
+          ZLayer.succeed(Printer)
 
         for env <- layer.build
         yield assertTrue(env.get[Printer] == Printer)
@@ -132,7 +150,7 @@ object ZLayerSpec extends ZIOSpecDefault:
           */
         val layer: ZLayer[Any, Nothing, Printer] =
           ZLayer {
-            ???
+            ZIO.succeed(Printer)
           }
 
         for env <- layer.build
@@ -167,24 +185,39 @@ object ZLayerSpec extends ZIOSpecDefault:
           */
         val layer: ZLayer[Printer, Nothing, Logger] =
           ZLayer.scoped {
-            ???
+            for 
+              _       <- ZIO.addFinalizer(Console.printLine("Logger being freed!").ignore)
+              printer <- ZIO.service[Printer]
+            yield Logger(printer)
           }
 
         (for env <- layer.build
         yield assertTrue(env.get[Logger] == Logger(Printer))).provide(ZLayer.succeed(Printer) ++ Scope.default)
       } @@ ignore,
       test("ZIO#provide") {
-        val loggerLayer: ZLayer[Any, Nothing, Logger] =
+        val configLayer: ZLayer[Any, Nothing, Config] = ZLayer.succeed(new Config{})
+
+        val printerLayer: ZLayer[Config, Nothing, Printer] = 
+          ZLayer {
+            for 
+              _ <- ZIO.service[Config]
+            yield Printer
+          }
+
+        val loggerLayer: ZLayer[Printer, Nothing, Logger] =
           ZLayer.succeed(Logger(Printer))
 
         val effect: ZIO[Logger, IOException, Logger] =
           ZIO.serviceWithZIO[Logger](logger => Console.printLine(logger).as(logger))
 
+        val baseLayer: ZLayer[Any, Nothing, Logger] = 
+          ZLayer.make[Logger](loggerLayer, printerLayer, configLayer)
+
         /** EXERCISE 9
           *
           * Using `ZIO#provide`, provide a `Printer` to an effect that requires a `Logger`.
           */
-        for logger <- ??? : ZIO[Any, IOException, Logger]
+        for logger <- effect.provide(baseLayer)
         yield assertTrue(logger == Logger(Printer))
       } @@ ignore,
       test("ZIO#provideSome") {
@@ -194,14 +227,14 @@ object ZLayerSpec extends ZIOSpecDefault:
         val configLayer: ZLayer[Any, Nothing, Config] =
           ZLayer.succeed(Config)
 
-        val effect: ZIO[Logger, IOException, Logger] =
+        val effect: ZIO[Config & Logger, IOException, Logger] =
           ZIO.serviceWithZIO[Logger](logger => Console.printLine(logger).as(logger))
 
         /** EXERCISE 9
           *
           * Using `ZIO#provideSome[Config]`, provide the logger to `effect`, leaving only `Config` as a requirement.
           */
-        for logger <- (??? : ZIO[Config, IOException, Logger]).provide(configLayer)
+        for logger <- effect.provideSome[Config](loggerLayer).provide(configLayer)
         yield assertTrue(logger == Logger(Printer))
       },
     )
