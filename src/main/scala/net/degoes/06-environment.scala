@@ -195,6 +195,7 @@ object ZLayerSpec extends ZIOSpecDefault:
         yield assertTrue(env.get[Logger] == Logger(Printer))).provide(ZLayer.succeed(Printer) ++ Scope.default)
       } @@ ignore,
       test("ZIO#provide") {
+        
         val configLayer: ZLayer[Any, Nothing, Config] = ZLayer.succeed(new Config{})
 
         val printerLayer: ZLayer[Config, Nothing, Printer] = 

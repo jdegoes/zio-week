@@ -13,6 +13,9 @@ import zio._
 import zio.test._
 import zio.test.TestAspect._
 import zio.http.Header.Te
+import zio.kafka.admin.acl.AclOperation.Create
+import scala.collection.mutable.ArrayBuilder.ofUnit
+import java.io.IOException
 
 final case class TodoId(value: String)
 
@@ -116,8 +119,14 @@ trait EmailService:
   def sendEmail(user: User, subject: String, body: String): ZIO[Any, Nothing, Unit]
 
 object EmailService:
-  trait TestEmailService extends EmailService {
-    def emails: List[(User, String, String)]
+  final case class TestEmailService(emailsRef: Ref[Chunk[(User, String, String)]]) extends EmailService {
+    def sendEmail(user: User, subject: String, body: String): ZIO[Any, Nothing, Unit] = 
+      for 
+        _ <- Console.printLine(s"Sending email from $user, $subject, $body").orDie
+        _ <- emailsRef.update(_ :+ (user, subject, body))
+      yield ()
+
+    def emails: ZIO[Any, Nothing, Chunk[(User, String, String)]] = emailsRef.get
   }
 
   /** EXERCISE 3
@@ -125,16 +134,93 @@ object EmailService:
     * Implement a layer that provides an email service that logs emails to the console and to an in-memory data
     * structure.
     */
-  lazy val testLayer: ZLayer[Any, Nothing, EmailService] = ???
+  lazy val testLayer: ZLayer[Any, Nothing, TestEmailService] = 
+    ZLayer {
+      for 
+        ref <- Ref.make(Chunk.empty[(User, String, String)])
+      yield TestEmailService(ref)
+    }
 
 class TodoApp(todoRepo: TodoRepo, todoConfig: TodoConfig, emailService: EmailService):
+  val testUser = User("jdegoes", "John De Goes", "john@degoes.net")
+
+  enum Choice:
+    case ListTodos
+    case CreateTodo 
+    case CompleteTodo 
+    case ExitApp
+
+  def parseChoice(line: String): ZIO[Any, Throwable, Choice] = 
+    (ZIO.attempt: 
+      line.trim match
+        case "1" => Choice.ListTodos 
+        case "2" => Choice.CreateTodo 
+        case "3" => Choice.CompleteTodo 
+        case "4" => Choice.ExitApp)
+
+  val listTodos: ZIO[Any, IOException, Unit] = 
+    for 
+      todos <- todoRepo.getAll(testUser)
+      _     <- ZIO.foreach(todos)(todo => Console.printLine(todo))
+    yield () 
+
+  val createTodo: ZIO[Any, IOException, Unit] = 
+    for 
+      _           <- Console.printLine("Please describe the todo:")
+      description <- Console.readLine
+      id          <- todoRepo.create(testUser, Todo(description, false))
+      _           <- Console.printLine(s"Id: $id")
+    yield ()
+
+  val completeTodo: ZIO[Any, IOException, Unit] = 
+    def updateTodo(id: TodoId): ZIO[Any, Option[Nothing], Unit] = 
+      for
+        todo <- todoRepo.get(id).some
+        _    <- todoRepo.update(id, todo.description, true)
+      yield ()
+
+    for 
+      _    <- Console.printLine("Please enter your todo id:")
+      id   <- Console.readLine.map(TodoId(_))
+      _    <- updateTodo(id).ignore
+    yield () 
+
+  val menuTable: Choice => ZIO[Any, IOException, Boolean] = {
+    case Choice.ListTodos     => listTodos.as(true)
+    case Choice.CreateTodo    => createTodo.as(true)
+    case Choice.CompleteTodo  => completeTodo.as(true)
+    case Choice.ExitApp       => ZIO.succeed(false)
+  }
+
+  val runLoopStep: ZIO[Any, Any, Boolean] = 
+    val prompt = 
+      Console.printLine("Please enter your option:")  *> 
+      Console.printLine("1. List todos")              *> 
+      Console.printLine("2. Create todo")             *> 
+      Console.printLine("3. Complete todo")           *> 
+      Console.printLine("4. Exit app")
+
+    val attemptInput = 
+      (prompt *> Console.readLine.orDie.flatMap(parseChoice)).tapError:
+        _ => Console.printLine("Unrecognized choice!").ignore
+
+    for 
+      choice <- attemptInput.eventually
+      bool   <- menuTable(choice)
+    yield bool
+
   /** EXERCISE 4
     *
     * Implement the `run` method for the TodoApp. Rather than provide a full REST API, simply implement a console-based
     * application that prompts users for management of their todos.
     */
-  val run: ZIO[Any, Nothing, Unit] =
-    ???
+  val run: ZIO[Any, Any, Unit] =
+    for 
+      _ <- Console.printLine("Welcome to TodoApp v0.01!")
+      _ <- runLoopStep.repeatWhileEquals(true)
+      _ <- Console.printLine("Goodbye!")
+    yield () 
+
 object TodoApp:
   /** EXERCISE 5
     *
