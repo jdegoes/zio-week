@@ -16,12 +16,20 @@ import zio.http.Header.Te
 import zio.kafka.admin.acl.AclOperation.Create
 import scala.collection.mutable.ArrayBuilder.ofUnit
 import java.io.IOException
+import zio.json._ 
+import zio.config.magnolia.examples.E
 
 final case class TodoId(value: String)
+object TodoId:
+  given JsonCodec[TodoId] = JsonCodec.string.transform(TodoId(_), _.value)
 
 final case class User(id: String, name: String, email: String)
+object User:
+  given JsonCodec[User] = DeriveJsonCodec.gen[User]
 
 final case class Todo(description: String, completed: Boolean)
+object Todo: 
+  given JsonCodec[Todo] = DeriveJsonCodec.gen[Todo]
 
 final case class TodoConfig()
 object TodoConfig:
@@ -226,17 +234,22 @@ object TodoApp:
     *
     * Create a layer that assembles a `TodoApp` given a `TodoRepo`, `TodoConfig`, and `EmailService`.
     */
-  lazy val layer: ZLayer[TodoRepo & TodoConfig & EmailService, Nothing, TodoApp] =
-    ZLayer.fromFunction(TodoApp.apply)
-
+  lazy val layer: ZLayer[TodoRepo & TodoConfig & EmailService, Nothing, Unit] =
+    ZLayer:
+      for 
+        todoRepo <- ZIO.service[TodoRepo] 
+        todoConfig <- ZIO.service[TodoConfig]
+        emailService <- ZIO.service[EmailService]
+        todoApp = TodoApp(todoRepo, todoConfig, emailService)
+        _ <- todoApp.run.orDie
+      yield ()
 object TodoAppMain extends ZIOAppDefault:
   /** EXERCISE 6
     *
     * Wire up the entire application by providing the `TodoApp` with all the layers that are required for its
     * dependencies.
     */
-  val run =
-    (for 
-      todoApp <- ZIO.service[TodoApp]
-      _       <- todoApp.run
-    yield ()).provide(TodoApp.layer, TodoRepo.testLayer, TodoConfig.defaultLayer, EmailService.testLayer)
+  // TodoApp.layer.runWith(TodoRepo.testLayer, TodoConfig.defaultLayer, EmailService.testLayer)
+  val run =    
+    // TodoApp.layer.runWith(TodoRepo.testLayer, TodoConfig.defaultLayer, EmailService.testLayer)
+    ZIO.serviceWithZIO[TodoApp](_.run).provide(TodoApp.layer, TodoRepo.testLayer, TodoConfig.defaultLayer, EmailService.testLayer)

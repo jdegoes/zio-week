@@ -14,19 +14,42 @@ import zio.schema.annotation.description
 import scala.util.Try
 
 import net.degoes.di._ 
+import java.io.IOException
 
 final case class TodoHttpApp(todoRepo: TodoRepo): 
   import PathCodec.string
+  import zio.json._
 
-  private def listTodos(request: Request) = Response()
+  case class TodoCreated(id: TodoId)
+  object TodoCreated: 
+    given JsonCodec[TodoCreated] = DeriveJsonCodec.gen[TodoCreated]
 
-  private def addTodo(request: Request) = Response()
+  val testUser = User("jdegoes", "John De Goes", "john@degoes.net")
 
-  private def getTodo(id: String, request: Request) = Response()
+  private def listTodos(request: Request): ZIO[Any, Nothing, Response] = 
+    for 
+      todos <- todoRepo.getAll(testUser)
+    yield Response.json(todos.toJson)
 
-  private def updateTodo(id: String, request: Request) = Response()
+  private def addTodo(request: Request): ZIO[Any, Nothing, Response] = 
+    (for 
+      body <- request.body.asString.orDie
+      todo <- ZIO.fromEither(body.fromJson[Todo])
+      id   <- todoRepo.create(testUser, todo)
+    yield Response.json(TodoCreated(id).toJson)).catchAll(error => ZIO.succeed(Response.badRequest(error)))
 
-  private def deleteTodo(id: String, request: Request) = Response()
+  private def getTodo(id: String, request: Request): ZIO[Any, Nothing, Response] = 
+    todoRepo.get(TodoId(id)).some.map(todo => Response.json(todo.toJson)).orElseSucceed(Response.notFound(s"The specified id $id was not found"))
+
+  private def updateTodo(id: String, request: Request): ZIO[Any, Nothing, Response] = 
+    (for 
+      body <- request.body.asString.orDie
+      todo <- ZIO.fromEither(body.fromJson[Todo])
+      _    <- todoRepo.update(TodoId(id), todo.description, todo.completed)
+    yield Response()).catchAll(error => ZIO.succeed(Response.badRequest(error)))
+
+  private def deleteTodo(id: String, request: Request): ZIO[Any, Nothing, Response] = 
+    todoRepo.delete(TodoId(id)).as(Response())
 
   val routes = Routes(
     Method.GET    / ""            -> handler(listTodos),
@@ -34,7 +57,7 @@ final case class TodoHttpApp(todoRepo: TodoRepo):
     Method.GET    / string("id")  -> handler(getTodo),
     Method.PUT    / string("id")  -> handler(updateTodo),
     Method.DELETE / string("id")  -> handler(deleteTodo),
-  ).nest("todos")
+  ).nest("todos") @@ Middleware.timeout(2.second)
 
 object TodoHttpApp:
   val layer = 
